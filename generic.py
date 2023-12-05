@@ -1,22 +1,24 @@
 import pandas as pd
 import random
 import matplotlib.pyplot as plt
+import os
 
 
 # Load the new dataset
 file_path = 'combinations.csv'  # Replace with the correct path to your CSV file
 new_df = pd.read_csv(file_path)
 
+# Initialize the population
 def initialize_population(size, df, teacher_type, max_hours, unavailable_days):
     population = []
     for _ in range(size):
-        # Sort the dataframe to have different course options
         shuffled_df = df.sample(frac=1).to_dict('records')
         assignments = []
         total_hours = 0
 
         for course in shuffled_df:
             if total_hours + course['hours'] <= max_hours:
+                # Remove direct classroom assignment here
                 assignments.append(course)
                 total_hours += course['hours']
             else:
@@ -26,7 +28,8 @@ def initialize_population(size, df, teacher_type, max_hours, unavailable_days):
 
     return population
 
-def tournament_selection(population, tournament_size=3):
+# Selecting parents
+def tournament_selection(population, tournament_size):
     parents = []
     for _ in range(len(population)):
         tournament = random.sample(population, tournament_size)
@@ -38,26 +41,27 @@ def tournament_selection(population, tournament_size=3):
 def crossover(parent1, parent2):
     child_assignments = []
 
-    # Choose a random point to split the schedules
     split_point = random.randint(0, len(parent1.assignments) - 1)
-
-    # Add the first part of the first parent to the child
     child_assignments.extend(parent1.assignments[:split_point])
 
-    # Add the second part of the second parent to the child
-    child_assignments.extend(parent2.assignments[split_point:])
+    for assignment in parent2.assignments[split_point:]:
+        # Remove direct classroom assignment
+        child_assignments.append(assignment)
 
-    # Return the child schedule
     return Schedule(child_assignments, parent1.teacher_type, '1', parent1.max_hours, parent1.unavailable_days)
 
+# Mutation
 def mutate(schedule, mutation_rate=0.1):
     if random.random() < mutation_rate:
         mutated_assignment = new_df.sample(1).to_dict('records')[0]
+        # Remove the classroom assignment from mutate
         schedule.assignments[random.randint(0, len(schedule.assignments) - 1)] = mutated_assignment
 
+# Elitism
 def elitism(population, top_k=1):
     return sorted(population, key=lambda s: s.fitness(), reverse=True)[:top_k]
 
+# Genetic Algorithm
 def run_genetic_algorithm(population_size, max_generations, df, teacher_type, max_hours=None, unavailable_days=None):
     # Initialize population
     population = initialize_population(population_size, df, teacher_type, max_hours, unavailable_days)
@@ -75,6 +79,10 @@ def run_genetic_algorithm(population_size, max_generations, df, teacher_type, ma
             child = crossover(parent1, parent2)
             mutate(child)
             new_population.append(child)
+
+        # Update fitness score with existing schedules
+        for individual in new_population:
+            individual.fitness_score = individual.fitness()
 
         # Apply elitism - include top individuals from the current generation
         elite = elitism(population)
@@ -102,6 +110,7 @@ def run_genetic_algorithm(population_size, max_generations, df, teacher_type, ma
     best_solution = max(population, key=lambda ind: ind.fitness())
     return best_solution
 
+# Get the next faculty identifier
 def get_next_faculty_identifier(faculty_type, file_path):
     try:
         existing_df = pd.read_csv(file_path)
@@ -115,6 +124,7 @@ def get_next_faculty_identifier(faculty_type, file_path):
     except FileNotFoundError:
         return f"{faculty_type}1"
     
+# Save the best schedule
 def save_best_schedule(best_schedule, faculty_type, file_path):
     faculty_identifier = get_next_faculty_identifier(faculty_type, file_path)
     for assignment in best_schedule.assignments:
@@ -127,6 +137,53 @@ def save_best_schedule(best_schedule, faculty_type, file_path):
         new_df = df
     new_df.to_csv(file_path, index=False)
 
+# New function for post-processing to assign classrooms
+def assign_classrooms(best_schedule, existing_schedules):
+    # Print best schedule
+    print("\nBest Schedule:")
+    for assignment in best_schedule.assignments:
+        print(f"{assignment['course']} - {assignment['start_time']} - {assignment['end_time']}")
+
+    # Print existing schedules
+    print("\nExisting Schedules:")
+    for _, row in existing_schedules.iterrows():
+        print(f"{row['course']} - {row['start_time']} - {row['end_time']}")
+
+    # Randomly assign classrooms
+    for assignment in best_schedule.assignments:
+        if '.1' in assignment['course']:
+            assignment['classroom'] = 'Classroom Lab 1'
+        else:
+            assignment['classroom'] = 'Classroom Lec 1'
+
+    for assignment in best_schedule.assignments:
+        for _, row in existing_schedules.iterrows():
+            if assignment['day'] == row['day'] and assignment['start_time'] == row['start_time'] and assignment['end_time'] == row['end_time'] and assignment['classroom'] == row['classroom']:
+                new_classroom = None
+
+                # Split assignment['classroom'] and get the number
+                number = int(assignment['classroom'].split(' ')[-1])
+
+                while True:
+                    # Increment the number until there are no conflicts
+                    increment_number = number + 1
+                    new_classroom = f"Classroom {'Lab' if '.1' in assignment['course'] else 'Lec'} {increment_number}"
+
+                    if new_classroom != row['classroom']:
+                        break
+
+                assignment['classroom'] = new_classroom
+
+# Function to read existing schedules or create an empty DataFrame if the file doesn't exist
+def read_or_create_existing_schedules(file_path):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
+    else:
+        # Define the columns that your schedule DataFrame should have
+        columns = ['day', 'start_time', 'end_time', 'course', 'classroom', 'faculty', 'hours']
+        return pd.DataFrame(columns=columns)
+
+# Schedule class
 class Schedule:
     def __init__(self, assignments, teacher_type, ga_type, max_hours=None, unavailable_days=None):
         self.assignments = assignments
@@ -136,68 +193,65 @@ class Schedule:
         self.unavailable_days = unavailable_days or []
 
     def fitness(self):
-        # Initialize the fitness score
         fitness_score = 1000
-
-        # Initialize total hours
         total_hours = 0
+        courses_added = set() # To check for duplicate courses
+
+        # Penalize for scheduling on unavailable days and overlapping schedules
+        unavailable_days_set = set(self.unavailable_days)
+
+        # Initialize schedule for checking overlapping schedule
+        schedule = []
 
         for assignment in self.assignments:
             total_hours += assignment['hours']
 
-        # Penalize schedules that exceed maximum hours
-        if total_hours > self.max_hours:
-            # Print
-            # print('Penalized for exceeding maximum hours')
-            fitness_score -= 1000
+            if assignment['day'] in unavailable_days_set:
+                fitness_score -= 500
+            
+            # Check for duplicate courses
+            course_code = assignment['course']
 
-        # Penalize for scheduling on unavailable days
-        for assignment in self.assignments:
-            if assignment['day'] in self.unavailable_days:
-                # Print
-                # print('Penalized for scheduling on unavailable days')
-                fitness_score -= 500  # Adjust penalty as needed
+            if course_code in courses_added:
+                fitness_score -= 500
 
-        # Penalize for overlapping schedules
-        for i in range(len(self.assignments)):
-            for j in range(i + 1, len(self.assignments)):
-                if self.assignments[i]['day'] == self.assignments[j]['day'] and self.is_overlapping(self.assignments[i], self.assignments[j]):
-                    fitness_score -= 1000  # Penalty for each overlapping schedule
+            courses_added.add(course_code)
+
+            # Check for overlapping day, start_time, end_time
+            for other in schedule:
+                if assignment['day'] == other['day'] and assignment['start_time'] == other['start_time'] and assignment['end_time'] == other['end_time']:
+                    fitness_score -= 500  # Penalize for overlapping schedule
+                    break
+
+            schedule.append({
+                'day': assignment['day'],
+                'start_time': assignment['start_time'],
+                'end_time': assignment['end_time']
+            })
+
+        # Penalize when total hours is far from the maximum hours
+        fitness_score -= abs(total_hours - self.max_hours) * 10
 
         return fitness_score
 
-    # Other methods of the Schedule class can be added here as needed
-    @staticmethod
-    def is_overlapping(assignment1, assignment2):
-        start_time1, end_time1 = Schedule.convert_to_minutes(assignment1['start_time']), Schedule.convert_to_minutes(assignment1['end_time'])
-        start_time2, end_time2 = Schedule.convert_to_minutes(assignment2['start_time']), Schedule.convert_to_minutes(assignment2['end_time'])
-
-        return max(start_time1, start_time2) < min(end_time1, end_time2)
-
-    @staticmethod
-    def convert_to_minutes(time_str):
-        # Split time into components
-        time_part, meridiem = time_str.split()
-        hours, minutes = map(int, time_part.split(':'))
-
-        # Convert to 24-hour format if it's PM
-        if meridiem == 'PM' and hours < 12:
-            hours += 12
-        elif meridiem == 'AM' and hours == 12:
-            hours = 0
-
-        return hours * 60 + minutes
-
 # Parameters for the genetic algorithm
-population_size = 50
-max_generations = 300
-teacher_type = 'FT'
-max_hours = 5
-unavailable_days = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Friday']
+population_size = 30
+max_generations = 100
+teacher_type = 'PT'
+max_hours = 14
+unavailable_days = ['Saturday', 'Sunday']
 fitness_scores = []
 
 # Run the genetic algorithm
 best_schedule = run_genetic_algorithm(population_size, max_generations, new_df, teacher_type, max_hours, unavailable_days)
+
+# Existing schedules
+existing_schedules = read_or_create_existing_schedules('generic-db.csv')
+
+# Post-processing
+assign_classrooms(best_schedule, existing_schedules)
+
+# Save the best schedule
 save_best_schedule(best_schedule, teacher_type, 'generic-db.csv')
 print("Best Schedule Fitness:", best_schedule.fitness())
 
@@ -211,7 +265,6 @@ total_hours = 0
 
 for assignment in best_schedule.assignments:
     total_hours += assignment['hours']
-
 print("\nTotal Hours:", total_hours)
 
 plt.plot(fitness_scores)
