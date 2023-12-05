@@ -8,8 +8,8 @@ from tqdm import tqdm
 import gudhi as gd
 import math
 
-population_size = 20
-max_generations = 500
+population_size = 50
+max_generations = 100
 
 teacher_type = 'FT' # FT or PT
 max_hours_per_week = 30 # Max hours per week
@@ -68,7 +68,7 @@ if teacher_type == 'PT':
 
 # {'Com Lab 1': 1, 'Com Lab 2': 2, 'Com Lab 3': 3, 'Com Lab 4': 4, 'GV 301': 5, 'GV 302': 6, 'GV 303': 7, 'GV 304': 8, 'GV 305': 9, 'GV 306': 10, 'GV 307': 11, 'GCA 301': 12, 'GCA 302': 13, 'GCA 303': 14, 'GCA 304': 15, 'GCA 305': 16}
 
-r = 3.99 # Growth rate parameter. Chaotic behavior occurs at r = 3.99
+r = 50 # Growth rate parameter. Chaotic behavior occurs at r = 3.99
 x = 0.5 # Current value
 
 def logistic_map(r, x):
@@ -201,7 +201,7 @@ class Schedule:
 
         return fitness_score
 
-def mutate(schedule, mutation_rate=0.1):
+def mutate(schedule, mutation_rate=1):
     if random.random() < mutation_rate:
         # Choose a random assignment index
         mutation_index = random.randint(0, len(schedule.assignments) - 1)
@@ -249,6 +249,8 @@ def main():
     best_fitnesses = []
     current_generation = 0
     population = []
+
+    all_fitness_scores = []  # Initialize an empty list to store fitness scores of all generations
 
     while current_generation < max_generations:
         # If population is empty, then create a new population
@@ -300,6 +302,10 @@ def main():
         for schedule in population:
             fitness_scores.append(schedule.fitness())
 
+        # Get fitness scores of the current generation and store them
+        current_gen_fitness = [schedule.fitness() for schedule in population]
+        all_fitness_scores.append(current_gen_fitness)
+
         # Get the index of the schedule with the highest fitness score
         best_fitness = max(fitness_scores)
 
@@ -311,7 +317,7 @@ def main():
         print(f"Current Fitness Scores: {sorted_fitness_scores} | Length: {len(sorted_fitness_scores)}\n")
 
          # Loop through population and select parents
-        for i in range(population_size // 2):  # We'll create one child per pair
+        for i in range(population_size):  # We'll create one child per pair
             # Select parents based on fitness scores
             # Make sure that the indices are within the range of the population
             parent1_index = fitness_scores.index(sorted_fitness_scores[i % len(sorted_fitness_scores)])
@@ -393,6 +399,11 @@ def main():
     with open('proposed-ga-fitness-scores.csv', 'w') as f:
         for fitness_score in best_fitnesses:
             f.write(f"{fitness_score}\n")
+
+    # After the GA loop, write the fitness scores to a CSV file
+    with open('proposed_population_fitness_scores.csv', 'w') as file:
+        for gen_scores in all_fitness_scores:
+            file.write(','.join(map(str, gen_scores)) + '\n')
 
     # Plot the best fitness function overtime
     plt.plot(best_fitnesses)

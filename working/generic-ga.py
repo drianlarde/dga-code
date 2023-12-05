@@ -18,8 +18,8 @@ ga_type = 1
 
 teacher_type = 'FT'
 
-population_size = 20 
-max_generations = 500
+population_size = 1000 
+max_generations = 100
 
 max_hours = 40
 unavailable_days = 'Monday,Wednesday'
@@ -247,12 +247,17 @@ def generic_ga(population_size, max_generations, df, teacher_type, max_hours=Non
 
     fitness_scores = []  # List to store the best fitness score in each generation
 
+    all_fitness_scores = []  # Initialize an empty list to store fitness scores of all generations
+
+
     # Main GA loop
     for generation in range(max_generations):
         # Append the best fitness score in the current generation, inside population.fitnes()
-        generation_best_fitness_without_max = [individual.fitness() for individual in population] # May 1.0 sa loob ng list na 'to, have to fix fitness. Masyadong unrealistic
         generation_best_fitness = max(individual.fitness() for individual in population)
         fitness_scores.append(generation_best_fitness)
+
+        current_gen_fitness = [individual.fitness() for individual in population]
+        all_fitness_scores.append(current_gen_fitness)
 
         # Check termination condition
         if check_termination_condition(population, generation, max_generations, target_fitness, convergence_threshold):
@@ -269,7 +274,7 @@ def generic_ga(population_size, max_generations, df, teacher_type, max_hours=Non
         # Get sorted population in an array of their fitness values
         sorted_population_fitness = [individual.fitness() for individual in sorted_population]
 
-        # Select parents ---
+        # Select parent
         parents = []
         for _ in range(len(population)):
             chosen_parent = random.choices(sorted_population, weights=selection_probabilities, k=1)[0]
@@ -312,6 +317,11 @@ def generic_ga(population_size, max_generations, df, teacher_type, max_hours=Non
     with open('generic-ga-fitness-scores.csv', 'w') as f:
         for score in fitness_scores:
             f.write(f"{score}\n")
+
+    # After the GA loop, write the fitness scores to a CSV file
+    with open('population_fitness_scores.csv', 'w') as file:
+        for gen_scores in all_fitness_scores:
+            file.write(','.join(map(str, gen_scores)) + '\n')
 
     return best_solution
 
