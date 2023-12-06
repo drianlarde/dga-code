@@ -3,7 +3,7 @@ import numpy as np
 from scipy.stats import entropy
 
 # Load the fitness scores data
-data = pd.read_csv('population_fitness_scores.csv', header=None)
+data = pd.read_csv('generic-fitness-scores.csv', header=None)
 
 # Function to calculate Shannon Entropy
 def shannon_entropy(values):

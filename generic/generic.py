@@ -5,8 +5,7 @@ import os
 
 
 # Load the new dataset
-file_path = 'combinations.csv'  # Replace with the correct path to your CSV file
-new_df = pd.read_csv(file_path)
+new_df = pd.read_csv('combinations.csv')
 
 # Initialize the population
 def initialize_population(size, df, teacher_type, max_hours, unavailable_days):
@@ -238,7 +237,7 @@ class Schedule:
 population_size = 30
 max_generations = 100
 teacher_type = 'PT'
-max_hours = 14
+max_hours = 30
 unavailable_days = ['Saturday', 'Sunday']
 fitness_scores = []
 
@@ -266,6 +265,10 @@ total_hours = 0
 for assignment in best_schedule.assignments:
     total_hours += assignment['hours']
 print("\nTotal Hours:", total_hours)
+
+# Put fitness_scores in a .csv file
+df = pd.DataFrame(fitness_scores)
+df.to_csv('generic-fitness-scores.csv', index=False)
 
 plt.plot(fitness_scores)
 plt.title("Fitness Scores")
