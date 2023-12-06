@@ -2,7 +2,7 @@ import pandas as pd
 import random
 import matplotlib.pyplot as plt
 import os
-
+import numpy as np
 
 # Load the new dataset
 new_df = pd.read_csv('combinations.csv')
@@ -64,6 +64,10 @@ def elitism(population, top_k=1):
 def run_genetic_algorithm(population_size, max_generations, df, teacher_type, max_hours=None, unavailable_days=None):
     # Initialize population
     population = initialize_population(population_size, df, teacher_type, max_hours, unavailable_days)
+    all_fitness_scores = []  # To store fitness scores of all individuals across generations
+    diversity_data = []  # To store diversity of each generation
+    best_fitness_scores = []  # To store the best fitness score of each generation
+
 
     for generation in range(max_generations):
         # Select parents
@@ -83,6 +87,17 @@ def run_genetic_algorithm(population_size, max_generations, df, teacher_type, ma
         for individual in new_population:
             individual.fitness_score = individual.fitness()
 
+        # Append fitness scores of all individuals to list
+        generation_scores = [{'generation': generation, 'individual_id': idx, 'fitness_score': individual.fitness()} for idx, individual in enumerate(population)]
+        all_fitness_scores.extend(generation_scores)
+
+        # Calculate and store diversity for this generation
+        diversity = calculate_population_diversity(population)
+        diversity_data.append({
+            'generation': generation,
+            'diversity': diversity
+        })
+
         # Apply elitism - include top individuals from the current generation
         elite = elitism(population)
         new_population.extend(elite)
@@ -99,15 +114,14 @@ def run_genetic_algorithm(population_size, max_generations, df, teacher_type, ma
         # Optional: Print the best fitness of the current generation
         best_fitness = max(individual.fitness() for individual in population)
 
-        # Append best fitness to list of fitness scores
-        fitness_scores.append(best_fitness)
+        best_fitness_scores.append(best_fitness)
 
         # Print all fitness scores sorted in descending order
         # print(f"\nGeneration {generation}: Best Fitness = {best_fitness}\n")
 
     # Return the best solution found
     best_solution = max(population, key=lambda ind: ind.fitness())
-    return best_solution
+    return best_solution, all_fitness_scores, diversity_data, best_fitness_scores
 
 # Get the next faculty identifier
 def get_next_faculty_identifier(faculty_type, file_path):
@@ -182,6 +196,12 @@ def read_or_create_existing_schedules(file_path):
         columns = ['day', 'start_time', 'end_time', 'course', 'classroom', 'faculty', 'hours']
         return pd.DataFrame(columns=columns)
 
+# New function to calculate population diversity
+def calculate_population_diversity(population):
+    fitness_scores = [individual.fitness() for individual in population]
+    diversity = np.var(fitness_scores)  # Variance of fitness scores as a diversity measure
+    return diversity
+
 # Schedule class
 class Schedule:
     def __init__(self, assignments, teacher_type, ga_type, max_hours=None, unavailable_days=None):
@@ -233,45 +253,95 @@ class Schedule:
 
         return fitness_score
 
-# Parameters for the genetic algorithm
-population_size = 30
-max_generations = 100
-teacher_type = 'PT'
-max_hours = 30
-unavailable_days = ['Saturday', 'Sunday']
 fitness_scores = []
 
-# Run the genetic algorithm
-best_schedule = run_genetic_algorithm(population_size, max_generations, new_df, teacher_type, max_hours, unavailable_days)
+# Define different configurations for runs
+run_configs = [
+    {'seed': 42, 'teacher_type': 'FT', 'max_hours': 30, 'unavailable_days': ['Saturday', 'Monday'], 'population_size': 10},
+    {'seed': 51, 'teacher_type': 'PT', 'max_hours': 25, 'unavailable_days': ['Sunday', 'Friday', 'Wednesday'], 'population_size': 10},
+    {'seed': 77, 'teacher_type': 'FT', 'max_hours': 20, 'unavailable_days': ['Saturday', 'Sunday'], 'population_size': 10},
+    {'seed': 62, 'teacher_type': 'PT', 'max_hours': 15, 'unavailable_days': ['Saturday', 'Sunday', 'Tuesday'], 'population_size': 10},
+]
 
-# Existing schedules
-existing_schedules = read_or_create_existing_schedules('generic-db.csv')
+# Prepare to collect best fitness scores for different configurations
+all_best_fitness_scores = {}
 
-# Post-processing
-assign_classrooms(best_schedule, existing_schedules)
+all_diversity_data = {'generation': range(max(config['population_size'] for config in run_configs))}
 
-# Save the best schedule
-save_best_schedule(best_schedule, teacher_type, 'generic-db.csv')
-print("Best Schedule Fitness:", best_schedule.fitness())
+for config in run_configs:
+    seed = config['seed']
+    teacher_type = config['teacher_type']
+    max_hours = config['max_hours']
+    unavailable_days = config['unavailable_days']
+    population_size = config['population_size']
+    max_generations = 100  # Set a common number for all runs
 
-# Print the best schedule
-print("\nBest Schedule:")
-for assignment in best_schedule.assignments:
-    print(assignment)
+    np.random.seed(seed)
+    random.seed(seed)
 
-# Print total hours
-total_hours = 0
+    best_schedule, fitness_data, diversity_data, best_fitness_scores = run_genetic_algorithm(
+        population_size, max_generations, new_df, teacher_type, max_hours, unavailable_days
+    )
 
-for assignment in best_schedule.assignments:
-    total_hours += assignment['hours']
-print("\nTotal Hours:", total_hours)
+    existing_schedules = read_or_create_existing_schedules('generic-db.csv')
 
-# Put fitness_scores in a .csv file
-df = pd.DataFrame(fitness_scores)
-df.to_csv('generic-fitness-scores.csv', index=False)
+    # Post-processing
+    assign_classrooms(best_schedule, existing_schedules)
 
-plt.plot(fitness_scores)
-plt.title("Fitness Scores")
-plt.xlabel("Generation")
-plt.ylabel("Fitness")
+    # Save the best schedule
+    save_best_schedule(best_schedule, teacher_type, 'generic-db.csv')
+    print("Best Schedule Fitness:", best_schedule.fitness())
+
+    # Print the best schedule
+    print("\nBest Schedule:")
+    for assignment in best_schedule.assignments:
+        print(assignment)
+
+    # Print total hours
+    total_hours = 0
+
+    for assignment in best_schedule.assignments:
+        total_hours += assignment['hours']
+    print("\nTotal Hours:", total_hours)
+
+    # Store the diversity data for plotting
+    diversity_df = pd.DataFrame(diversity_data)
+    config_label = f'seed_{seed}_type_{teacher_type}_hours_{max_hours}'
+    all_diversity_data[config_label] = diversity_df.set_index('generation')['diversity'].tolist()
+    all_best_fitness_scores[config_label] = best_fitness_scores
+
+# After all runs are complete, combine the diversity data
+max_gen_count = max(len(diversity) for diversity in all_diversity_data.values())
+all_diversity_data['generation'] = range(max_gen_count)
+
+# Create the DataFrame with all diversity data
+all_diversity_df = pd.DataFrame({k: v + [None]*(max_gen_count - len(v)) if len(v) < max_gen_count else v for k, v in all_diversity_data.items()})
+
+# Now all_diversity_df can be saved to CSV or used for plotting directly
+all_diversity_df.to_csv('diversity_across_generations.csv', index=False)
+
+# Create a figure with two subplots, side by side
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))  # 1 row, 2 columns
+
+# Plot Diversity Across Generations in the first subplot (ax1)
+for column in all_diversity_df.columns:
+    if 'seed_' in column:
+        ax1.plot(all_diversity_df['generation'], all_diversity_df[column], label=column)
+ax1.set_title('Diversity Across Generations for Different Initial Conditions')
+ax1.set_xlabel('Generation')
+ax1.set_ylabel('Diversity (Variance of Fitness Scores)')
+ax1.legend(title='Configurations', loc='best')
+
+# Plot Best Fitness Scores Across Generations in the second subplot (ax2)
+for config, fitness_scores in all_best_fitness_scores.items():
+    ax2.plot(range(len(fitness_scores)), fitness_scores, label=config)
+ax2.set_title('Best Fitness Scores Across Generations for Different Initial Conditions')
+ax2.set_xlabel('Generation')
+ax2.set_ylabel('Best Fitness Score')
+ax2.legend(title='Configurations', loc='best')
+
+# Adjust layout to prevent overlapping
+plt.tight_layout()
+
+# Show the figure with both subplots
 plt.show()
