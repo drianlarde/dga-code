@@ -46,12 +46,55 @@ def crossover(parent1, parent2):
 
     return Schedule(child_assignments, parent1.teacher_type, '1', parent1.max_hours, parent1.unavailable_days)
 
-# Mutation
-def mutate(schedule, mutation_rate=0.1):
+def adaptive_mutation_rate(best_fitness, diversity, base_rate=0.05, max_rate=0.2):
+    """
+    Calculates an adaptive mutation rate based on the best fitness score and population diversity.
+    The mutation rate increases if the diversity is low or the best fitness is not improving significantly.
+    
+    :param best_fitness: The best fitness score in the current generation.
+    :param diversity: The diversity measure of the current population.
+    :param base_rate: The base mutation rate.
+    :param max_rate: The maximum allowed mutation rate.
+    :return: The calculated mutation rate.
+    """
+    # Adjust the rate based on diversity and best fitness
+    rate = base_rate + (max_rate - base_rate) * (1 - diversity / best_fitness)
+    return min(max(rate, base_rate), max_rate)
+
+def de_inspired_mutation(population, best_fitness, diversity):
+    # With adaptive mutation rate (SOP 1 & 3)(Much Better)
+    mutation_rate = adaptive_mutation_rate(best_fitness, diversity)
+
+    # Typical DE inspired mutation (Somehow Better)
+    # mutation_rate = 0.1
+
     if random.random() < mutation_rate:
-        mutated_assignment = new_df.sample(1).to_dict('records')[0]
-        # Remove the classroom assignment from mutate
-        schedule.assignments[random.randint(0, len(schedule.assignments) - 1)] = mutated_assignment
+        # Select 3 random individuals
+        a, b, c = random.sample(population, 3)
+
+        # Choose a random day from one of the individuals
+        chosen_day = random.choice([random.choice(a.assignments), 
+                                    random.choice(b.assignments), 
+                                    random.choice(c.assignments)])['day']
+
+        # Choose a random time slot (start_time, end_time, hours) from one of the individuals
+        chosen_time_slot = random.choice([random.choice(a.assignments), 
+                                          random.choice(b.assignments), 
+                                          random.choice(c.assignments)])
+
+        # Create a new assignment combining chosen day and time slot
+        new_assignment = {
+            'day': chosen_day,
+            'start_time': chosen_time_slot['start_time'],
+            'end_time': chosen_time_slot['end_time'],
+            'hours': chosen_time_slot['hours'],
+            'course': new_df.sample(1).to_dict('records')[0]['course']
+        }
+
+        # Replace a random assignment in a random individual's schedule with the new assignment
+        random_individual = random.choice(population)
+        random_individual.assignments[random.randint(0, len(random_individual.assignments) - 1)] = new_assignment
+
 
 # Elitism
 def elitism(population, top_k=1):
@@ -69,65 +112,47 @@ def run_genetic_algorithm(population_size, max_generations, df, teacher_type, ma
         # Select parents
         parents = tournament_selection(population, tournament_size)
 
+        # Identify and preserve the elite before creating new offspring
+        elite = elitism(population, top_k=1)
+        
         # Generate new population through crossover and mutation
         new_population = []
-
-        # Keep the best individual from the current generation
-        while len(new_population) < population_size:
+        while len(new_population) < population_size - len(elite):  # Reserve space for the elite
             parent1, parent2 = random.sample(parents, 2)
-            
             # Apply crossover based on crossover rate
             if random.random() <= crossover_rate:
                 child = crossover(parent1, parent2)
-                mutate(child, mutation_rate)
                 new_population.append(child)
-            else:
-                # No crossover, just copy one of the parents to new population
-                new_population.append(random.choice([parent1, parent2]))
 
-        # If necessary, adjust for odd population size by adding one more individual
-        if len(new_population) < population_size:
-            new_population.append(random.choice(parents))
+        best_fitness = max(individual.fitness() for individual in new_population)
+        diversity = calculate_population_diversity(population)
 
-        # Update fitness score with existing schedules
+        # Mutate the new offspring (not the elite)
+        for individual in new_population:
+            de_inspired_mutation(new_population, best_fitness, diversity)
+
+        # Combine the elite with the new offspring
+        new_population.extend(elite)
+
+        # Evaluate the new population
         for individual in new_population:
             individual.fitness_score = individual.fitness()
 
-        # Append fitness scores of all individuals to list
-        generation_scores = [{'generation': generation, 'individual_id': idx, 'fitness_score': individual.fitness()} for idx, individual in enumerate(population)]
-        all_fitness_scores.extend(generation_scores)
+        # Update the best fitness score
+        best_fitness_scores.append(best_fitness)
+
+        # The new population becomes the current population
+        population = new_population
 
         # Calculate and store diversity for this generation
-        diversity = calculate_population_diversity(population)
         diversity_data.append({
             'generation': generation,
             'diversity': diversity
         })
 
-        # Apply elitism - include top individuals from the current generation
-        elite = elitism(population)
-        new_population.extend(elite)
-
-        # Print existing population fitness in sorted in descending order
-        sorted_population = sorted(population, key=lambda ind: ind.fitness(), reverse=True)
-        print(f'Existing population fitness: {[individual.fitness() for individual in sorted_population]}')
-
-        # Replace the old population with the new one
-        population = new_population
-        sorted_new_population = sorted(population, key=lambda ind: ind.fitness(), reverse=True)
-        # print(f'New population fitness: {[individual.fitness() for individual in sorted_new_population]}')
-
-        # Optional: Print the best fitness of the current generation
-        best_fitness = max(individual.fitness() for individual in population)
-
-        best_fitness_scores.append(best_fitness)
-
         # Check if this is the first time the target fitness level is reached in this run
         if best_fitness >= target_fitness_level and generation not in generation_of_target_fitness:
             generation_of_target_fitness.append(generation)
-
-        # Print all fitness scores sorted in descending order
-        # print(f"\nGeneration {generation}: Best Fitness = {best_fitness}\n")
 
     # Return the best solution found
     best_solution = max(population, key=lambda ind: ind.fitness())
