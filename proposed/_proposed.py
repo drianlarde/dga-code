@@ -424,7 +424,7 @@ target_fitness_level = 0.9  # This value can be adjusted based on your criteria
 # To store the generation at which the target fitness level is first reached
 generation_of_target_fitness = []
 
-max_generations = 500
+max_generations = 80
 
 # Initialize collections for results
 all_best_fitness_scores = {}
@@ -486,7 +486,7 @@ for column in all_diversity_df.columns:
 ax1.set_title('Diversity Across Generations for Different Initial Conditions')
 ax1.set_xlabel('Generation')
 ax1.set_ylabel('Diversity (Variance of Fitness Scores)')
-ax1.legend(title='Configurations', loc='best')
+# ax1.legend(title='Configurations', loc='best')
 
 # Plot Best Fitness Scores Across Generations in the second subplot (ax2)
 for config, fitness_scores in all_best_fitness_scores.items():
@@ -494,7 +494,7 @@ for config, fitness_scores in all_best_fitness_scores.items():
 ax2.set_title('Best Fitness Scores Across Generations for Different Initial Conditions')
 ax2.set_xlabel('Generation')
 ax2.set_ylabel('Best Fitness Score')
-ax2.legend(title='Configurations', loc='best')
+# ax2.legend(title='Configurations', loc='best')
 
 # Adjust layout to prevent overlapping
 plt.tight_layout()

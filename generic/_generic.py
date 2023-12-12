@@ -275,7 +275,7 @@ new_df = pd.read_csv('combinations.csv')
 # Extended run_configs with a wider range of GA parameters
 run_configs = [
     # For Slow Convergence Simulation
-    {'seed': 55, 'teacher_type': 'FT', 'max_hours': 35, 'unavailable_days': ['Tuesday', 'Thursday'], 'population_size': 5, 'crossover_rate': 0.3, 'mutation_rate': 0.01, 'tournament_size': 2},
+    {'seed': 55, 'teacher_type': 'FT', 'max_hours': 35, 'unavailable_days': ['Tuesday', 'Thursday'], 'population_size': 5, 'crossover_rate': 0.5, 'mutation_rate': 0.1, 'tournament_size': 2},
 
     # Turn on both to simulate `Sensitivity to Initial Conditions`
 
