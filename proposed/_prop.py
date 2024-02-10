@@ -2,78 +2,63 @@ import pandas as pd
 import random
 import matplotlib.pyplot as plt
 import os
-import gudhi as gd
 import numpy as np
+import threading
+import time
 
-def perform_tda_analysis(population):
-    # Transform your population of schedules into a point cloud
-    point_cloud = np.array([schedule.get_features() for schedule in population])
+start_time = time.time()
 
-    # Construct a Rips complex from the point cloud
-    rips_complex = gd.RipsComplex(points=point_cloud, max_edge_length=1.0)
+# Parameters for Genetic Algorithm
+pc = 0.8  # Crossover probability
+pm = 0.1  # Mutation probability
+nPop = 50  # Population size for each subpopulation
+nDist = 2  # Number of subpopulations
+nGen = 100  # Number of generations
 
-    # Create a simplex tree from the Rips complex
-    simplex_tree = rips_complex.create_simplex_tree(max_dimension=2)
+# Initialize global variables
+initial_crossover_rate = pc
+initial_mutation_rate = pm
+initial_tournament_size = 3
+global_migration_pool = []
 
-    # Compute persistent homology
-    persistence = simplex_tree.persistence()
+def calculate_mae_mse(predicted_fitness, optimal_fitness_values):
+    if len(predicted_fitness) != len(optimal_fitness_values):
+        raise ValueError("Length of predicted fitness values and optimal fitness values must be the same.")
 
-    return persistence
+    total_absolute_error = 0
+    total_squared_error = 0
 
-initial_crossover_rate = 0.5  # Initial crossover rate
-initial_mutation_rate = 0.05  # Initial mutation rate
-initial_tournament_size = 3    # Initial tournament size
+    for predicted, optimal in zip(predicted_fitness, optimal_fitness_values):
+        total_absolute_error += abs(predicted - optimal)
+        total_squared_error += (predicted - optimal) ** 2
 
-def adapt_parameters_based_on_tda(tda_results, crossover_rate, mutation_rate, tournament_size):
-    persistence_values = [p[1][1] - p[1][0] for p in tda_results if p[1][1] < float('inf')]
-    avg_persistence = sum(persistence_values) / len(persistence_values) if persistence_values else 0
+    mae = total_absolute_error / len(predicted_fitness)
+    mse = total_squared_error / len(predicted_fitness)
 
-    # Adjust mutation rate based on persistence
-    if avg_persistence < 0.2:  # Low diversity
-        mutation_rate += 0.01
-    else:  # High diversity
-        mutation_rate -= 0.01
-
-    # Adjust crossover rate and tournament size
-    if avg_persistence > 0.4:  # High convergence
-        crossover_rate += 0.05
-        tournament_size += 1
-    else:  # Low convergence
-        crossover_rate -= 0.05
-        tournament_size -= 1
-
-    # Ensure rates and sizes stay within reasonable ranges
-    mutation_rate = max(0.01, min(mutation_rate, 0.2))
-    crossover_rate = max(0.3, min(crossover_rate, 0.8))
-    tournament_size = max(2, min(tournament_size, 5))
-
-    return crossover_rate, mutation_rate, tournament_size
-
+    return mae, mse
 
 def logistic_map(r, x, iterations):
     values = []
     for _ in range(iterations):
-        x = r * x * (1 - x)
+        x = 2 * x * (1 - x)
         values.append(x)
     return values
 
 # Explores more in solution space
-def initialize_population(size, df, teacher_type, max_hours, unavailable_days, r=3.99):
+def initialize_population(size, df, teacher_type, max_hours, unavailable_days, r=3.99, diversity_threshold=0.5):
     population = []
-    for _ in range(size):
+    while len(population) < size:
         x_start = random.random()
         logistic_values = logistic_map(r, x_start, len(df))
 
-        # Normalize logistic values to sum to 1, to use as weights for sampling
-        logistic_weights = [lv / sum(logistic_values) for lv in logistic_values]
-
-        # Use weighted sampling to select courses based on logistic map values
-        sorted_courses = random.choices(df.to_dict('records'), weights=logistic_weights, k=len(df))
+        # Shuffle the dataframe based on logistic values to ensure high diversity
+        shuffled_df = df.sample(frac=1, weights=logistic_values, replace=False)
 
         assignments = []
         total_hours = 0
-        
-        for course in sorted_courses:
+
+        # Iterate over the shuffled dataframe to create unique assignments for each individual
+        for _, course in shuffled_df.iterrows():
             if total_hours + course['hours'] <= max_hours and course['day'] not in unavailable_days:
                 assignments.append(course)
                 total_hours += course['hours']
@@ -81,30 +66,17 @@ def initialize_population(size, df, teacher_type, max_hours, unavailable_days, r
             if total_hours >= max_hours:
                 break
 
+        # Check if the diversity of the generated individual is above the threshold
+        individual_hours = [course['hours'] for course in assignments]
+        if np.var(individual_hours) < diversity_threshold:
+            # If not diverse enough, discard and regenerate this individual
+            continue
+
+        # If diverse enough, add to the population
         population.append(Schedule(assignments, teacher_type, '1', max_hours, unavailable_days))
 
     return population
 
-# Typical GA initialization, no diversity and doesn't explore more in solution space
-# Initialize the population
-# def initialize_population(size, df, teacher_type, max_hours, unavailable_days):
-#     population = []
-#     for _ in range(size):
-#         shuffled_df = df.sample(frac=1).to_dict('records')
-#         assignments = []
-#         total_hours = 0
-
-#         for course in shuffled_df:
-#             if total_hours + course['hours'] <= max_hours:
-#                 # Remove direct classroom assignment here
-#                 assignments.append(course)
-#                 total_hours += course['hours']
-#             else:
-#                 break  # Stop adding courses if max hours are reached or exceeded
-
-#         population.append(Schedule(assignments, teacher_type, '1', max_hours, unavailable_days))
-
-#     return population
 
 # Selecting parents
 def tournament_selection(population, tournament_size):
@@ -140,7 +112,7 @@ def adaptive_mutation_rate(best_fitness, diversity, base_rate=0.05, max_rate=0.2
     :return: The calculated mutation rate.
     """
     # Adjust the rate based on diversity and best fitness
-    rate = base_rate + (max_rate - base_rate) * (1 - diversity / best_fitness)
+    rate = base_rate + (max_rate - base_rate) * (1 - diversity / best_fitness) # meaning: rate is equals
     return min(max(rate, base_rate), max_rate)
 
 def de_inspired_mutation(population, best_fitness, diversity):
@@ -181,68 +153,80 @@ def de_inspired_mutation(population, best_fitness, diversity):
 def elitism(population, top_k=1):
     return sorted(population, key=lambda s: s.fitness(), reverse=True)[:top_k]
 
+# Define a lock for thread-safe operations
+migration_lock = threading.Lock()
+
 # Genetic Algorithm
-def run_genetic_algorithm(population_size, max_generations, df, teacher_type, max_hours, unavailable_days, initial_crossover_rate, initial_mutation_rate, initial_tournament_size, target_fitness_level, generation_of_target_fitness):
-    # Initialize population
+def run_genetic_algorithm(population_size, max_generations, df, teacher_type, max_hours, unavailable_days, crossover_rate, mutation_rate, tournament_size, subpopulation_id, migration_interval, target_fitness_level, generation_of_target_fitness, global_migration_pool):
     population = initialize_population(population_size, df, teacher_type, max_hours, unavailable_days)
     all_fitness_scores = []
     diversity_data = []
     best_fitness_scores = []
 
-    crossover_rate = initial_crossover_rate
-    mutation_rate = initial_mutation_rate
-    tournament_size = initial_tournament_size
-
     for generation in range(max_generations):
-        # TDA analysis and parameter adaptation every 'n' generations
-        if generation % 10 == 0:  # For example, every 10 generations
-            tda_results = perform_tda_analysis(population)
-            crossover_rate, mutation_rate, tournament_size = adapt_parameters_based_on_tda(
-                tda_results, crossover_rate, mutation_rate, tournament_size
-            )
-
         # Select parents
         parents = tournament_selection(population, tournament_size)
 
-        # Identify and preserve the elite before creating new offspring
-        elite = elitism(population, top_k=1)
-        
-        # Generate new population through crossover and mutation
+        # Generate new population
         new_population = []
-        
-        while len(new_population) < population_size - len(elite):
+        while len(new_population) < population_size:
             parent1, parent2 = random.sample(parents, 2)
             if random.random() <= crossover_rate:
                 child = crossover(parent1, parent2)
                 new_population.append(child)
 
-        # Calculate fitness and diversity before mutation
+        # Calculate fitness and diversity for the new population
         for individual in new_population:
             individual.fitness_score = individual.fitness()
-        best_fitness = max(individual.fitness() for individual in new_population)
+        best_fitness = max(individual.fitness_score for individual in new_population)
         diversity = calculate_population_diversity(new_population)
 
-        # Mutate the new offspring (not the elite)
+        # Apply mutation
         for individual in new_population:
             de_inspired_mutation(new_population, best_fitness, diversity)
 
-        # Combine the elite with the new offspring
-        new_population.extend(elite)
-
-        # Update the population
+        # Update population
         population = new_population
 
-        # Calculate and store diversity and fitness for this generation
+        # Check if it's time to migrate
+        if generation % migration_interval == 0:
+            with migration_lock:
+                selective_migration(population, global_migration_pool, subpopulation_id)
+
+        # Store fitness and diversity data
         diversity_data.append({'generation': generation, 'diversity': diversity})
         best_fitness_scores.append(best_fitness)
 
-        # Check for target fitness achievement
+        # Check for target fitness
         if best_fitness >= target_fitness_level and generation not in generation_of_target_fitness:
             generation_of_target_fitness.append(generation)
 
-    # Return the best solution found
     best_solution = max(population, key=lambda ind: ind.fitness())
-    return best_solution, all_fitness_scores, diversity_data, best_fitness_scores
+
+    # Get final population
+    final_population = population
+
+    # Get the final population fitness scores
+    final_population_fitness_scores = [individual.fitness() for individual in final_population]
+
+    return best_solution, all_fitness_scores, diversity_data, best_fitness_scores, final_population, final_population_fitness_scores
+
+def selective_migration(population, global_migration_pool, subpopulation_id):
+    # Select top individuals to migrate
+    top_individuals = sorted(population, key=lambda x: x.fitness(), reverse=True)[:5]  # Example: top 5
+    # Add them to the global migration pool with their subpopulation ID
+    for individual in top_individuals:
+        global_migration_pool.append((subpopulation_id, individual))
+
+    # Retrieve and integrate migrants from other subpopulations
+    for subpop_id, migrant in global_migration_pool:
+        if subpop_id != subpopulation_id:
+            population.append(migrant)
+            # Remove the migrant from the pool
+            global_migration_pool.remove((subpop_id, migrant))
+
+    # # Ensure population size remains constant (optional)
+    # population = population[:population_size]
 
 # Get the next faculty identifier
 def get_next_faculty_identifier(faculty_type, file_path):
@@ -323,6 +307,24 @@ def calculate_population_diversity(population):
     diversity = np.var(fitness_scores)  # Variance of fitness scores as a diversity measure
     return diversity
 
+def subpopulation_thread(df, config, subpopulation_id, global_migration_pool):
+    run_genetic_algorithm(
+        population_size=config['population_size'],
+        max_generations=nGen,
+        df=df,
+        teacher_type=config['teacher_type'],
+        max_hours=config['max_hours'],
+        unavailable_days=config['unavailable_days'],
+        crossover_rate=config['crossover_rate'],
+        mutation_rate=config['mutation_rate'],
+        tournament_size=config['tournament_size'],
+        subpopulation_id=subpopulation_id,
+        migration_interval=config['migration_interval'],
+        target_fitness_level=config['target_fitness_level'],
+        generation_of_target_fitness=[],
+        global_migration_pool=global_migration_pool
+    )
+
 # Schedule class
 class Schedule:
     def __init__(self, assignments, teacher_type, ga_type, max_hours=None, unavailable_days=None):
@@ -347,50 +349,65 @@ class Schedule:
         return features
 
     def fitness(self):
-        total_hours = 0
-        courses_added = set() # To check for duplicate courses
-        penalty = 0
+        # Define weights for each constraint
+        weights = {
+            'unavailable_day_penalty': 5,  # replace 5 with the actual weight for scheduling on unavailable days
+            'duplicate_course_penalty': 5,  # replace 5 with the actual weight for duplicate courses
+            'overlap_penalty': 5,  # replace 5 with the actual weight for overlapping classes
+            'hours_penalty': 1  # replace 1 with the actual weight for total hours
+        }
 
-        # Penalize for scheduling on unavailable days and overlapping schedules
-        unavailable_days_set = set(self.unavailable_days)
+        # Initialize penalties
+        unavailable_day_penalty = 0
+        duplicate_course_penalty = 0
+        overlap_penalty = 0
+        hours_penalty = 0
 
         # Initialize schedule for checking overlapping schedule
         schedule = []
 
+        # Set to track courses added to avoid duplicates
+        courses_added = set()
+
+        # Calculate penalties
         for assignment in self.assignments:
-            total_hours += assignment['hours']
+            # Check for scheduling on unavailable days
+            if assignment['day'] in self.unavailable_days:
+                unavailable_day_penalty += 1
 
-            if assignment['day'] in unavailable_days_set:
-                # penalty += 500  # Penalize for scheduling on unavailable days
-                penalty += 5  # Penalize for scheduling on unavailable days
-            
             # Check for duplicate courses
-            course_code = assignment['course']
+            if assignment['course'] in courses_added:
+                duplicate_course_penalty += 1
+            else:
+                courses_added.add(assignment['course'])
 
-            if course_code in courses_added:
-                # penalty += 500
-                penalty += 5
-
-            courses_added.add(course_code)
-
-            # Check for overlapping day, start_time, end_time
+            # Check for overlapping classes
             for other in schedule:
                 if assignment['day'] == other['day'] and assignment['start_time'] == other['start_time'] and assignment['end_time'] == other['end_time']:
-                    # penalty += 500
-                    penalty += 5
-                    break
+                    overlap_penalty += 1
+                    break  # Only need to find one overlap to penalize
 
+            # Add the assignment to the schedule for overlap checking
             schedule.append({
                 'day': assignment['day'],
                 'start_time': assignment['start_time'],
                 'end_time': assignment['end_time']
             })
 
-        # penalty += abs(total_hours - self.max_hours) * 10
+        # Calculate the penalty for not meeting the total hours
+        total_hours = sum(assignment['hours'] for assignment in self.assignments)
+        hours_penalty = abs(total_hours - self.max_hours)
 
-        penalty += abs(total_hours - self.max_hours)
+        # Calculate total weighted penalty
+        total_penalty = (weights['unavailable_day_penalty'] * unavailable_day_penalty +
+                         weights['duplicate_course_penalty'] * duplicate_course_penalty +
+                         weights['overlap_penalty'] * overlap_penalty +
+                         weights['hours_penalty'] * hours_penalty)
+        
+        print(f"Total Weighted Penalty: {total_penalty}")
 
-        fitness_score = 1 / (1 + penalty)
+        # Calculate fitness score (assuming lower penalty is better)
+        fitness_score = 1 / (1 + total_penalty)
 
         return fitness_score
 
@@ -400,23 +417,43 @@ new_df = pd.read_csv('combinations.csv')
 # Extended run_configs with a wider range of GA parameters
 run_configs = [
     # For Slow Convergence Simulation
-    {'seed': 55, 'teacher_type': 'FT', 'max_hours': 35, 'unavailable_days': ['Tuesday', 'Thursday'], 'population_size': 5, 'crossover_rate': 0.3, 'mutation_rate': 0.01, 'tournament_size': 2},
+    {'seed': 55, 'teacher_type': 'FT', 'max_hours': 35, 'unavailable_days': ['Tuesday', 'Thursday'], 'population_size': 5, 'crossover_rate': 0.3, 'mutation_rate': 0.5, 'tournament_size': 2, 'subpopulation_id': 0}, 
 
     # Turn on both to simulate `Sensitivity to Initial Conditions`
 
     # For Fast Convergence Simulation
-    {'seed': 60, 'teacher_type': 'PT', 'max_hours': 20, 'unavailable_days': ['Monday', 'Wednesday'], 'population_size': 12, 'crossover_rate': 0.65, 'mutation_rate': 0.15, 'tournament_size': 5},
+    # {'seed': 60, 'teacher_type': 'PT', 'max_hours': 20, 'unavailable_days': ['Monday', 'Wednesday'], 'population_size': 12, 'crossover_rate': 0.65, 'mutation_rate': 0.15, 'tournament_size': 5, 'subpopulation_id': 1},
 
     # Other
-    {'seed': 65, 'teacher_type': 'FT', 'max_hours': 28, 'unavailable_days': ['Friday'], 'population_size': 8, 'crossover_rate': 0.5, 'mutation_rate': 0.2, 'tournament_size': 6},
-    # {'seed': 70, 'teacher_type': 'PT', 'max_hours': 22, 'unavailable_days': ['Monday', 'Friday'], 'population_size': 15, 'crossover_rate': 0.85, 'mutation_rate': 0.05, 'tournament_size': 7},
-    # {'seed': 75, 'teacher_type': 'FT', 'max_hours': 30, 'unavailable_days': ['Wednesday', 'Thursday'], 'population_size': 10, 'crossover_rate': 0.9, 'mutation_rate': 0.1, 'tournament_size': 2},
-    # {'seed': 80, 'teacher_type': 'PT', 'max_hours': 26, 'unavailable_days': ['Tuesday'], 'population_size': 14, 'crossover_rate': 0.7, 'mutation_rate': 0.12, 'tournament_size': 3},
-    # {'seed': 85, 'teacher_type': 'FT', 'max_hours': 32, 'unavailable_days': [], 'population_size': 9, 'crossover_rate': 0.55, 'mutation_rate': 0.18, 'tournament_size': 5},
-    # {'seed': 90, 'teacher_type': 'PT', 'max_hours': 24, 'unavailable_days': ['Sunday', 'Saturday'], 'population_size': 13, 'crossover_rate': 0.8, 'mutation_rate': 0.07, 'tournament_size': 4},
-    # {'seed': 95, 'teacher_type': 'FT', 'max_hours': 29, 'unavailable_days': ['Monday', 'Tuesday', 'Wednesday'], 'population_size': 11, 'crossover_rate': 0.6, 'mutation_rate': 0.1, 'tournament_size': 6},
-    # {'seed': 100, 'teacher_type': 'PT', 'max_hours': 23, 'unavailable_days': ['Thursday', 'Friday'], 'population_size': 16, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'tournament_size': 2},
+    # {'seed': 65, 'teacher_type': 'FT', 'max_hours': 28, 'unavailable_days': ['Friday'], 'population_size': 8, 'crossover_rate': 0.5, 'mutation_rate': 0.2, 'tournament_size': 6, 'subpopulation_id': 1},
+    {'seed': 70, 'teacher_type': 'PT', 'max_hours': 22, 'unavailable_days': ['Monday', 'Friday'], 'population_size': 15, 'crossover_rate': 0.85, 'mutation_rate': 0.05, 'tournament_size': 7, 'subpopulation_id': 0},
+    # {'seed': 75, 'teacher_type': 'FT', 'max_hours': 30, 'unavailable_days': ['Wednesday', 'Thursday'], 'population_size': 10, 'crossover_rate': 0.9, 'mutation_rate': 0.1, 'tournament_size': 2, 'subpopulation_id': 1},
+    # {'seed': 80, 'teacher_type': 'PT', 'max_hours': 26, 'unavailable_days': ['Tuesday'], 'population_size': 14, 'crossover_rate': 0.7, 'mutation_rate': 0.12, 'tournament_size': 3, 'subpopulation_id': 0},
+    # {'seed': 85, 'teacher_type': 'FT', 'max_hours': 32, 'unavailable_days': [], 'population_size': 9, 'crossover_rate': 0.55, 'mutation_rate': 0.18, 'tournament_size': 5, 'subpopulation_id': 1},
+    # {'seed': 90, 'teacher_type': 'PT', 'max_hours': 24, 'unavailable_days': ['Sunday', 'Saturday'], 'population_size': 13, 'crossover_rate': 0.8, 'mutation_rate': 0.07, 'tournament_size': 4, 'subpopulation_id': 0},
+    # {'seed': 95, 'teacher_type': 'FT', 'max_hours': 29, 'unavailable_days': ['Monday', 'Tuesday', 'Wednesday'], 'population_size': 11, 'crossover_rate': 0.6, 'mutation_rate': 0.1, 'tournament_size': 6, 'subpopulation_id': 1},
+    # {'seed': 100, 'teacher_type': 'PT', 'max_hours': 23, 'unavailable_days': ['Thursday', 'Friday'], 'population_size': 16, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'tournament_size': 2, 'subpopulation_id': 0},
 ]
+
+# Global list to store threads for each subpopulation
+thread_list = []
+
+migration_interval = 10  # Example interval
+
+# Run GA for each subpopulation
+for subpop_id in range(nDist):
+    for config in run_configs:
+        # Create a separate thread for each subpopulation and configuration
+        thread = threading.Thread(
+            target=subpopulation_thread,
+            args=(new_df, config, subpop_id, global_migration_pool)
+        )
+        thread_list.append(thread)
+        thread.start()
+
+# Wait for all threads to complete
+for thread in thread_list:
+    thread.join()
 
 # Define the target fitness level for comparison
 target_fitness_level = 0.9  # This value can be adjusted based on your criteria
@@ -430,6 +467,9 @@ max_generations = 80
 all_best_fitness_scores = {}
 all_diversity_data = {'generation': range(max(config['population_size'] for config in run_configs))}
 
+all_final_populations = []
+all_final_population_fitness_scores = []
+
 # Run experiments and collect data in a single loop
 for config in run_configs:
     seed = config['seed']
@@ -437,9 +477,9 @@ for config in run_configs:
     random.seed(seed)
 
     # Run the genetic algorithm
-    best_schedule, fitness_data, diversity_data, best_fitness_scores = run_genetic_algorithm(
+    best_schedule, fitness_data, diversity_data, best_fitness_scores, final_population, final_population_fitness_scores = run_genetic_algorithm(
         config['population_size'], max_generations, new_df, config['teacher_type'], config['max_hours'], config['unavailable_days'],
-        config['crossover_rate'], config['mutation_rate'], config['tournament_size'], target_fitness_level, generation_of_target_fitness
+        config['crossover_rate'], config['mutation_rate'], config['tournament_size'], config['subpopulation_id'], migration_interval, target_fitness_level, generation_of_target_fitness, global_migration_pool
     )
 
     # Post-processing, saving schedules, and printing
@@ -453,6 +493,12 @@ for config in run_configs:
     config_label = f"seed_{seed}_type_{config['teacher_type']}_hours_{config['max_hours']}_CR_{config['crossover_rate']}_MR_{config['mutation_rate']}_TS_{config['tournament_size']}"
     all_diversity_data[config_label] = diversity_df.set_index('generation')['diversity'].tolist()
     all_best_fitness_scores[config_label] = best_fitness_scores
+
+    # Append the final population
+    all_final_populations.append(best_schedule)
+
+    # Append the final population fitness scores
+    all_final_population_fitness_scores.append(final_population_fitness_scores)
 
 # Calculating the average number of generations needed to reach the target fitness level
 if generation_of_target_fitness:
@@ -475,6 +521,12 @@ all_diversity_df = pd.DataFrame({k: v + [None]*(max_gen_count - len(v)) if len(v
 
 # Save the diversity data to a CSV file
 all_diversity_df.to_csv('diversity_across_generations.csv', index=False)
+
+# Place this just before your plotting code and after the main execution ends.
+end_time = time.time()
+total_time = end_time - start_time
+
+print(f"Total execution time: {total_time} seconds")
 
 # Create a figure with two subplots, side by side
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))  # 1 row, 2 columns
@@ -501,3 +553,10 @@ plt.tight_layout()
 
 # Show the figure with both subplots
 plt.show()
+
+# Get MAE and MSE using final population fitness scores for each config
+for config, final_population_fitness_scores in zip(run_configs, all_final_population_fitness_scores):
+    mae, mse = calculate_mae_mse(final_population_fitness_scores, [1] * len(final_population_fitness_scores))
+    print(f"MAE: {mae}, MSE: {mse} for {config}\n\n")
+
+
