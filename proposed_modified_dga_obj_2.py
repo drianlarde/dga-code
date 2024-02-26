@@ -2,6 +2,7 @@ import random
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import time
+import numpy as np
 
 # ------------------------ Helper Functions ------------------------
 
@@ -56,35 +57,28 @@ def adjust_time_slot_selection(course_duration, time_slots):
 #         population.append(chromosome)
 #     return population
 
+def logistic_map(x, r=4.0):
+    """Logistic map function for chaotic mapping."""
+    return r * x * (1 - x)
+
 def initialize_population(population_size, faculty_data, courses_units, courses, rooms, days, time_slots):
-    """
-    Initializes the population with chromosomes, considering faculty availability when assigning courses.
-    Ensures that courses are assigned to days when the faculty member is available.
-
-    Parameters:
-    - population_size (int): The size of the population to be initialized.
-    - faculty_data (list): List containing faculty availability and other details.
-    - courses_units (dict): A dictionary mapping each course to its unit value.
-    - courses (list): List of all courses.
-    - rooms (list): List of available rooms.
-    - days (list): List of all possible days.
-    - time_slots (list): List of available time slots.
-
-    Returns:
-    - list: A list of chromosomes representing the initial population.
-    """
     population = []
+    x0 = random.uniform(0, 1)  # Initial value for chaotic sequence
+    
     for _ in range(population_size):
         chromosome = []
+        x = x0  # Reset to initial value for each chromosome
+        
         for faculty in faculty_data:
             assigned_courses_with_details = []
             remaining_units = faculty['max_units']
             shuffled_courses = random.sample(courses, len(courses))
             
             for course in shuffled_courses:
-                if courses_units[course] <= remaining_units:
+                x = logistic_map(x)  # Update x using chaotic mapping
+                if courses_units[course] <= remaining_units and x > 0.5:  # Use chaotic condition
                     room = random.choice(rooms)
-                    available_days = faculty['availability']  # Only use faculty's available days
+                    available_days = faculty['availability']
                     day = random.choice(available_days)
                     adjusted_time_slot = adjust_time_slot_selection(courses_units[course], time_slots)
                     if adjusted_time_slot:
@@ -100,7 +94,49 @@ def initialize_population(population_size, faculty_data, courses_units, courses,
         population.append(chromosome)
     return population
 
+# def initialize_population(population_size, faculty_data, courses_units, courses, rooms, days, time_slots):
+#     """
+#     Initializes the population with chromosomes, considering faculty availability when assigning courses.
+#     Ensures that courses are assigned to days when the faculty member is available.
 
+#     Parameters:
+#     - population_size (int): The size of the population to be initialized.
+#     - faculty_data (list): List containing faculty availability and other details.
+#     - courses_units (dict): A dictionary mapping each course to its unit value.
+#     - courses (list): List of all courses.
+#     - rooms (list): List of available rooms.
+#     - days (list): List of all possible days.
+#     - time_slots (list): List of available time slots.
+
+#     Returns:
+#     - list: A list of chromosomes representing the initial population.
+#     """
+#     population = []
+#     for _ in range(population_size):
+#         chromosome = []
+#         for faculty in faculty_data:
+#             assigned_courses_with_details = []
+#             remaining_units = faculty['max_units']
+#             shuffled_courses = random.sample(courses, len(courses))
+            
+#             for course in shuffled_courses:
+#                 if courses_units[course] <= remaining_units:
+#                     room = random.choice(rooms)
+#                     available_days = faculty['availability']  # Only use faculty's available days
+#                     day = random.choice(available_days)
+#                     adjusted_time_slot = adjust_time_slot_selection(courses_units[course], time_slots)
+#                     if adjusted_time_slot:
+#                         assigned_courses_with_details.append((course, room, day, adjusted_time_slot))
+#                         remaining_units -= courses_units[course]
+
+#             chromosome.append({
+#                 'id': faculty['id'],
+#                 'max_units': faculty['max_units'],
+#                 'total_assigned_units': faculty['max_units'] - remaining_units,
+#                 'assigned_courses_with_details': assigned_courses_with_details
+#             })
+#         population.append(chromosome)
+#     return population
 
 def print_population(population, faculty_data):
     for chromosome_index, chromosome in enumerate(population, start=1):
@@ -481,39 +517,39 @@ def mutate(chromosome, mutation_rate, courses, rooms, days, time_slots, faculty_
             for course_detail_index, course_detail in enumerate(faculty_schedule['assigned_courses_with_details']):
                 mutation_choice = random.choice(['course', 'room', 'day', 'time_slot'])
 
-                # if mutation_choice == 'room':
-                #     new_room = random.choice(rooms)
-                #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:1] + (new_room,) + course_detail[2:]
-
-                # if mutation_choice == 'day':
-                #     new_day = random.choice([day for day in days if day in faculty_info['availability']])
-                #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
-
-                # if mutation_choice == 'time_slot':
-                #     new_time_slot = random.choice(time_slots)
-                #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-                
                 if mutation_choice == 'room':
-                    # Attempt to select a new room that does not result in overlaps
-                    for _ in range(10):  # Try up to 10 times to find a non-overlapping room
-                        new_room = random.choice(rooms)
-                        if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
-                            faculty_schedule['assigned_courses_with_details'][course_detail_index] = (course_detail[0], new_room) + course_detail[2:]
-                            break
+                    new_room = random.choice(rooms)
+                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:1] + (new_room,) + course_detail[2:]
 
                 if mutation_choice == 'day':
                     new_day = random.choice([day for day in days if day in faculty_info['availability']])
-                    # Check for consulting hour conflicts before applying the mutation
-                    if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_info['consulting_hours']):
-                        faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
-                
+                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
+
                 if mutation_choice == 'time_slot':
-                    # Attempt to select a new time slot that does not conflict with consulting hours
-                    for _ in range(10):  # Try up to 10 times to find a non-conflicting time slot
-                        new_time_slot = random.choice(time_slots)
-                        if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_info['consulting_hours']):
-                            faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-                            break
+                    new_time_slot = random.choice(time_slots)
+                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
+                
+                # if mutation_choice == 'room':
+                #     # Attempt to select a new room that does not result in overlaps
+                #     for _ in range(10):  # Try up to 10 times to find a non-overlapping room
+                #         new_room = random.choice(rooms)
+                #         if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
+                #             faculty_schedule['assigned_courses_with_details'][course_detail_index] = (course_detail[0], new_room) + course_detail[2:]
+                #             break
+
+                # if mutation_choice == 'day':
+                #     new_day = random.choice([day for day in days if day in faculty_info['availability']])
+                #     # Check for consulting hour conflicts before applying the mutation
+                #     if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_info['consulting_hours']):
+                #         faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
+                
+                # if mutation_choice == 'time_slot':
+                #     # Attempt to select a new time slot that does not conflict with consulting hours
+                #     for _ in range(10):  # Try up to 10 times to find a non-conflicting time slot
+                #         new_time_slot = random.choice(time_slots)
+                #         if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_info['consulting_hours']):
+                #             faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
+                #             break
 
                 # Other mutation logic for 'course' and 'room' remains unchanged
                 
@@ -628,6 +664,25 @@ def migrate_selected_individuals_between_islands(islands, num_migrants=1, migrat
             print(f"Migrated {num_migrants} individuals between {island_name} and {next_island}.")
     else:
         print("Migration did not occur this generation due to migration rate threshold.")
+
+# ------------------------ Diversity Functions ------------------------
+
+def calculate_diversity(population):
+    """
+    Calculates the diversity of the population based on the uniqueness of course-day-time slot-room combinations.
+    
+    Parameters:
+        population (list): The current population of chromosomes.
+    
+    Returns:
+        int: The diversity metric.
+    """
+    unique_assignments = set()
+    for chromosome in population:
+        for faculty_schedule in chromosome:
+            for course_detail in faculty_schedule['assigned_courses_with_details']:
+                unique_assignments.add((course_detail[0], course_detail[2], course_detail[3], course_detail[1]))  # (course, day, time_slot, room)
+    return len(unique_assignments)
 
 # ------------------------ Checker + Printing Functions ------------------------
 
@@ -756,8 +811,8 @@ def print_consulting_hour_conflicts(conflicts):
 
 NUM_GENERATIONS = 100  # Number of generations to evolve the population
 MUTATION_RATE = 0.1  # Mutation rate
-POPULATION_SIZE = 10
-NUM_ISLANDS = 4
+POPULATION_SIZE = 20
+NUM_ISLANDS = 2
 CHROMOSOMES_PER_ISLAND = POPULATION_SIZE // NUM_ISLANDS  # 20 chromosomes per island
 
 faculty_data = [
@@ -1027,7 +1082,16 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     # Initialize a dictionary to store fitness scores for plotting
     fitness_scores_over_generations = {island_name: [] for island_name in islands.keys()}
 
+    # Initialize a list to store diversity scores for plotting
+    diversity_scores_over_generations = []
+
+    # Initialize a dictionary to store diversity scores for each island
+    island_diversity_scores_over_generations = {island_name: [] for island_name in islands.keys()}
+
     for generation in range(1, num_generations + 1):
+        # Temporary list to hold populations for diversity calculation
+        temp_population_aggregate = []
+
         print(f"\n=== Generation {generation} ===")
 
         # Iterate through each island
@@ -1066,6 +1130,13 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
             best_fitness_this_generation = max(updated_fitness_scores)
             fitness_scores_over_generations[island_name].append(best_fitness_this_generation)
 
+            # For diversity calculation
+            temp_population_aggregate.extend(population)
+
+            # Calculate diversity for the current island and append to its list
+            current_island_diversity = calculate_diversity(population)
+            island_diversity_scores_over_generations[island_name].append(current_island_diversity)
+
             current_best_fitness = max(updated_fitness_scores)
             if current_best_fitness == optimal_fitness_threshold:
                 global_best_fitness = current_best_fitness
@@ -1081,6 +1152,12 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
                 global_best_solution = max(population, key=lambda chromosome: calculate_fitness(chromosome, faculty_data))
 
             print(f"Best Fitness in {island_name}: {current_best_fitness}")
+
+        # After processing all islands, calculate diversity for the entire set of islands
+        # If diversity is calculated across all islands, aggregate populations here
+        aggregated_population = [chromosome for island_population in islands.values() for chromosome in island_population]
+        diversity_score = calculate_diversity(aggregated_population)  # Calculate diversity for aggregated population
+        diversity_scores_over_generations.append(diversity_score)
 
         if optimal_reached:
             print(f"Optimal solution found at generation {generation} with fitness: {global_best_fitness}")
@@ -1108,6 +1185,30 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     # Total time taken
     total_time = end_time - start_time
     print(f"Total Time: {total_time:.2f} seconds")
+
+    # ----------------------------- Plotting or analyzing diversity scores across islands -----------------------------
+
+    # Plotting or analyzing diversity scores...
+    # You can plot the diversity of each island over generations to observe how they evolve
+    for island_name, diversities in island_diversity_scores_over_generations.items():
+        plt.plot(diversities, label=island_name)
+
+    plt.title('Island Diversity Over Generations')
+    plt.xlabel('Generation')
+    plt.ylabel('Diversity Score')
+    plt.legend()
+    plt.show()
+
+    # ----------------------------- Plotting Diversity Scores -----------------------------
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(diversity_scores_over_generations, label='Diversity Score')
+    plt.title('Diversity Score Over Generations')
+    plt.xlabel('Generation')
+    plt.ylabel('Diversity Score')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
     # ----------------------------- Plotting Fitness Scores -----------------------------
 
@@ -1180,4 +1281,3 @@ run_dga(islands, faculty_data, num_generations=NUM_GENERATIONS, mutation_rate=MU
 #         conflicts = check_for_consulting_hour_conflicts(chromosome, faculty_data)
 #         print(f"Chromosome {index}:")
 #         print_consulting_hour_conflicts(conflicts)
-

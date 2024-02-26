@@ -2,6 +2,7 @@ import random
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import time
+import numpy as np
 
 # ------------------------ Helper Functions ------------------------
 
@@ -370,16 +371,16 @@ def crossover(parent1, parent2, faculty_data):
     # Perform the swap between the two cross points for each offspring
     for i in range(cross_point1, cross_point2 + 1):
         # Before swapping, check if the swap would cause consulting hour conflicts
-        # if not will_cause_consulting_conflict(offspring1[i], faculty_data) and not will_cause_consulting_conflict(offspring2[i], faculty_data):
+        if not will_cause_consulting_conflict(offspring1[i], faculty_data) and not will_cause_consulting_conflict(offspring2[i], faculty_data):
             # Swap assigned courses, rooms, days, and time slots between parents if no conflicts
             offspring1[i]['assigned_courses_with_details'], offspring2[i]['assigned_courses_with_details'] = \
                 offspring2[i]['assigned_courses_with_details'], offspring1[i]['assigned_courses_with_details']
 
-    # # Perform the swap between the two cross points for each offspring, with additional room overlap checks
-    # for i in range(cross_point1, cross_point2 + 1):
-    #     if not will_cause_room_overlap(offspring1[i], offspring2[i], offspring1 + offspring2):
-    #         offspring1[i]['assigned_courses_with_details'], offspring2[i]['assigned_courses_with_details'] = \
-    #             offspring2[i]['assigned_courses_with_details'], offspring1[i]['assigned_courses_with_details']
+    # Perform the swap between the two cross points for each offspring, with additional room overlap checks
+    for i in range(cross_point1, cross_point2 + 1):
+        if not will_cause_room_overlap(offspring1[i], offspring2[i], offspring1 + offspring2):
+            offspring1[i]['assigned_courses_with_details'], offspring2[i]['assigned_courses_with_details'] = \
+                offspring2[i]['assigned_courses_with_details'], offspring1[i]['assigned_courses_with_details']
 
     return offspring1, offspring2
 
@@ -452,72 +453,133 @@ def times_overlap(time_slot1, time_slot2):
 
 # ------------------------ Mutation Functions ------------------------
 
-def mutate(chromosome, mutation_rate, courses, rooms, days, time_slots, faculty_data):
+# def mutate(chromosome, mutation_rate, courses, rooms, days, time_slots, faculty_data):
+#     """
+#     Applies mutation to a given chromosome based on the mutation rate, with mutations considering faculty availability,
+#     avoiding conflicts with consulting hours, and preventing room overlaps. This ensures that course days are only
+#     mutated to days when the faculty member is available, do not overlap with their consulting hours, and avoid
+#     double booking of rooms.
+
+#     Parameters:
+#         chromosome (list): The chromosome to mutate.
+#         mutation_rate (float): The probability of mutation for each element of the chromosome.
+#         courses (list): List of all possible courses.
+#         rooms (list): List of available rooms.
+#         days (list): List of all possible days.
+#         time_slots (list): List of available time slots.
+#         faculty_data (list): List containing faculty availability and other details including consulting hours.
+
+#     Returns:
+#         list: The mutated chromosome with consideration to faculty availability, consulting hours, and room booking.
+#     """
+#     for faculty_schedule in chromosome:
+#         faculty_id = faculty_schedule['id']
+#         faculty_info = next((item for item in faculty_data if item['id'] == faculty_id), None)
+#         if not faculty_info:
+#             continue  # Skip if faculty info is not found
+        
+#         if random.random() < mutation_rate:
+#             for course_detail_index, course_detail in enumerate(faculty_schedule['assigned_courses_with_details']):
+#                 mutation_choice = random.choice(['course', 'room', 'day', 'time_slot'])
+
+#                 # if mutation_choice == 'room':
+#                 #     new_room = random.choice(rooms)
+#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:1] + (new_room,) + course_detail[2:]
+
+#                 # if mutation_choice == 'day':
+#                 #     new_day = random.choice([day for day in days if day in faculty_info['availability']])
+#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
+
+#                 # if mutation_choice == 'time_slot':
+#                 #     new_time_slot = random.choice(time_slots)
+#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
+                
+#                 if mutation_choice == 'room':
+#                     # Attempt to select a new room that does not result in overlaps
+#                     for _ in range(10):  # Try up to 10 times to find a non-overlapping room
+#                         new_room = random.choice(rooms)
+#                         if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
+#                             faculty_schedule['assigned_courses_with_details'][course_detail_index] = (course_detail[0], new_room) + course_detail[2:]
+#                             break
+
+#                 if mutation_choice == 'day':
+#                     new_day = random.choice([day for day in days if day in faculty_info['availability']])
+#                     # Check for consulting hour conflicts before applying the mutation
+#                     if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_info['consulting_hours']):
+#                         faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
+                
+#                 if mutation_choice == 'time_slot':
+#                     # Attempt to select a new time slot that does not conflict with consulting hours
+#                     for _ in range(10):  # Try up to 10 times to find a non-conflicting time slot
+#                         new_time_slot = random.choice(time_slots)
+#                         if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_info['consulting_hours']):
+#                             faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
+#                             break
+
+#                 # Other mutation logic for 'course' and 'room' remains unchanged
+                
+#     return chromosome
+
+def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5):
     """
-    Applies mutation to a given chromosome based on the mutation rate, with mutations considering faculty availability,
-    avoiding conflicts with consulting hours, and preventing room overlaps. This ensures that course days are only
-    mutated to days when the faculty member is available, do not overlap with their consulting hours, and avoid
-    double booking of rooms.
+    Objective 1: Adaptive mutation strategy inspired by Differential Evolution (DE) to apply changes to a single chromosome within the context of a scheduling problem.
+    
+    Applies a mutation inspired by Differential Evolution (DE) to a single chromosome within the context of a scheduling problem.
+    The mutation randomly targets aspects of course assignments: room, day, or time slot, and applies changes based on the DE strategy,
+    using differences between other randomly selected chromosomes to guide the mutation.
 
     Parameters:
-        chromosome (list): The chromosome to mutate.
-        mutation_rate (float): The probability of mutation for each element of the chromosome.
-        courses (list): List of all possible courses.
-        rooms (list): List of available rooms.
-        days (list): List of all possible days.
-        time_slots (list): List of available time slots.
-        faculty_data (list): List containing faculty availability and other details including consulting hours.
+    - chromosome: The individual chromosome to mutate, representing a faculty schedule.
+    - population: The current population from which to select individuals for DE operations.
+    - rooms, days, time_slots: Lists of available rooms, days, and time slots for scheduling.
+    - faculty_data: Data containing faculty preferences and constraints.
+    - F: DE scaling factor controlling the intensity of mutations.
 
     Returns:
-        list: The mutated chromosome with consideration to faculty availability, consulting hours, and room booking.
+    - Mutated chromosome with potentially altered course assignments.
     """
-    for faculty_schedule in chromosome:
-        faculty_id = faculty_schedule['id']
-        faculty_info = next((item for item in faculty_data if item['id'] == faculty_id), None)
-        if not faculty_info:
-            continue  # Skip if faculty info is not found
-        
-        if random.random() < mutation_rate:
-            for course_detail_index, course_detail in enumerate(faculty_schedule['assigned_courses_with_details']):
-                mutation_choice = random.choice(['course', 'room', 'day', 'time_slot'])
+    # Ensure there are enough individuals for DE operation, excluding the current chromosome
+    eligible_population = [ind for ind in population if ind != chromosome]
+    if len(eligible_population) < 3:
+        print("Not enough unique chromosomes for DE-inspired mutation. Skipping mutation for this chromosome.")
+        return chromosome  # Return the chromosome unchanged
 
-                if mutation_choice == 'room':
-                    new_room = random.choice(rooms)
-                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:1] + (new_room,) + course_detail[2:]
+    # Safe to proceed with sampling
+    r1, r2, r3 = random.sample(eligible_population, 3)
 
-                if mutation_choice == 'day':
-                    new_day = random.choice([day for day in days if day in faculty_info['availability']])
-                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
+    # Mutation logic remains the same as previously described
+    for faculty_index, faculty_schedule in enumerate(chromosome):
+        # Protect against index errors when faculty_index exceeds the length of r1, r2, or r3
+        if faculty_index >= len(r1) or faculty_index >= len(r2) or faculty_index >= len(r3):
+            continue
 
-                if mutation_choice == 'time_slot':
-                    new_time_slot = random.choice(time_slots)
-                    faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-                
-                # if mutation_choice == 'room':
-                #     # Attempt to select a new room that does not result in overlaps
-                #     for _ in range(10):  # Try up to 10 times to find a non-overlapping room
-                #         new_room = random.choice(rooms)
-                #         if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
-                #             faculty_schedule['assigned_courses_with_details'][course_detail_index] = (course_detail[0], new_room) + course_detail[2:]
-                #             break
+        for course_detail_index, course_detail in enumerate(faculty_schedule['assigned_courses_with_details']):
+            # Select a mutation aspect randomly
+            mutation_choice = random.choice(['room', 'day', 'time_slot'])
+            
+            if mutation_choice == 'room':
+                # DE-inspired mutation for room, considering non-overlapping constraints
+                new_room = random.choice([room for room in rooms if room != course_detail[1]])
+                if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
+                    course_detail = (course_detail[0], new_room, course_detail[2], course_detail[3])
 
-                # if mutation_choice == 'day':
-                #     new_day = random.choice([day for day in days if day in faculty_info['availability']])
-                #     # Check for consulting hour conflicts before applying the mutation
-                #     if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_info['consulting_hours']):
-                #         faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
-                
-                # if mutation_choice == 'time_slot':
-                #     # Attempt to select a new time slot that does not conflict with consulting hours
-                #     for _ in range(10):  # Try up to 10 times to find a non-conflicting time slot
-                #         new_time_slot = random.choice(time_slots)
-                #         if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_info['consulting_hours']):
-                #             faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-                #             break
+            elif mutation_choice == 'day':
+                # DE-inspired mutation for day, considering faculty availability and consulting hour conflicts
+                new_day = random.choice([day for day in days if day != course_detail[2] and day in faculty_data[faculty_index]['availability']])
+                if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_data[faculty_index]['consulting_hours']):
+                    course_detail = (course_detail[0], course_detail[1], new_day, course_detail[3])
 
-                # Other mutation logic for 'course' and 'room' remains unchanged
-                
+            elif mutation_choice == 'time_slot':
+                # DE-inspired mutation for time slot, ensuring no overlap with consulting hours
+                new_time_slot = random.choice([ts for ts in time_slots if ts != course_detail[3]])
+                if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_data[faculty_index]['consulting_hours']):
+                    course_detail = (course_detail[0], course_detail[1], course_detail[2], new_time_slot)
+
+            # Safely update the course detail after mutation
+            faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail
+
     return chromosome
+
 
 def conflicts_with_consulting_hours(day, time_slot, consulting_hours):
     """
@@ -555,6 +617,11 @@ def causes_room_overlap(course_details, index, new_room, chromosome):
             if course_detail[1] == new_room and course_detail[2] == day and times_overlap(course_detail[3], time_slot):
                 return True  # Overlap detected
     return False  # No overlap detected
+
+def calculate_population_diversity(population):
+    total_assigned_units = [faculty['total_assigned_units'] for chromosome in population for faculty in chromosome]
+    diversity = np.var(total_assigned_units)
+    return diversity
 
 # ------------------------ Elitism Functions ------------------------
 
@@ -1057,6 +1124,8 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
         # Temporary list to hold populations for diversity calculation
         temp_population_aggregate = []
 
+        # ----------------------------- Evolutionary Steps -----------------------------
+
         print(f"\n=== Generation {generation} ===")
 
         # Iterate through each island
@@ -1066,10 +1135,10 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
             # Selection
 
             # Rank
-            # parent1, parent2, fitness1, fitness2 = rank_selection(population, faculty_data)
+            parent1, parent2, fitness1, fitness2 = rank_selection(population, faculty_data)
 
             # Tournament
-            parent1, parent2, fitness1, fitness2 = tournament_selection(population, faculty_data, tournament_size=3)
+            # parent1, parent2, fitness1, fitness2 = tournament_selection(population, faculty_data, tournament_size=3)
 
             print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2)
 
@@ -1078,8 +1147,14 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
             offspring1, offspring2 = crossover(parent1, parent2, faculty_data)
 
             # Mutation
-            mutated_offspring1 = mutate(offspring1, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
-            mutated_offspring2 = mutate(offspring2, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
+            # mutated_offspring1 = mutate(offspring1, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
+            # mutated_offspring2 = mutate(offspring2, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
+
+            # Mutate - With differential evolution mutation strategy
+            # def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5):
+        
+            mutated_offspring1 = mutate(offspring1, population, rooms, days, time_slots, faculty_data)
+            mutated_offspring2 = mutate(offspring2, population, rooms, days, time_slots, faculty_data)
 
             # Elitism and Population Update
             elites, elite_fitness_scores = select_elites(population, faculty_data)
