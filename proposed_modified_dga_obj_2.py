@@ -28,35 +28,6 @@ def adjust_time_slot_selection(course_duration, time_slots):
 
 # ------------------------ Initialization Functions ------------------------
 
-# Updated function to include correct day, time slot, and room assignments
-# def initialize_population(population_size, faculty_data, courses_units, courses, rooms, days, time_slots):
-#     population = []
-#     for _ in range(population_size):
-#         chromosome = []
-#         for faculty in faculty_data:
-#             assigned_courses_with_details = []
-#             remaining_units = faculty['max_units']
-#             shuffled_courses = random.sample(courses, len(courses))
-
-#             for course in shuffled_courses:
-#                 course_units = courses_units[course]
-#                 if course_units <= remaining_units:
-#                     room = random.choice(rooms)
-#                     day = random.choice(faculty['availability'])
-#                     adjusted_time_slot = adjust_time_slot_selection(course_units, time_slots)
-#                     if adjusted_time_slot:
-#                         assigned_courses_with_details.append((course, room, day, adjusted_time_slot))
-#                         remaining_units -= course_units
-
-#             chromosome.append({
-#                 'id': faculty['id'],
-#                 'max_units': faculty['max_units'],
-#                 'total_assigned_units': faculty['max_units'] - remaining_units,
-#                 'assigned_courses_with_details': assigned_courses_with_details
-#             })
-#         population.append(chromosome)
-#     return population
-
 def logistic_map(x, r=4.0):
     """Logistic map function for chaotic mapping."""
     return r * x * (1 - x)
@@ -159,7 +130,6 @@ def print_population(population, faculty_data):
                     print(f"      - Course: {course}, Room: {room}, Day: {day}, Time Slot: {time_slot}")
                 print("  " + "-" * 50)  # Separator for readability within a chromosome
         print("\n" + "=" * 60)  # Separator between chromosomes
-
 
 # ------------------------ Fitness Functions ------------------------
 
@@ -1196,6 +1166,8 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     plt.title('Island Diversity Over Generations')
     plt.xlabel('Generation')
     plt.ylabel('Diversity Score')
+    plt.grid(True)
+    plt.tight_layout()
     plt.legend()
     plt.show()
 
@@ -1206,6 +1178,8 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     plt.title('Diversity Score Over Generations')
     plt.xlabel('Generation')
     plt.ylabel('Diversity Score')
+    plt.grid(True)
+    plt.tight_layout()
     plt.legend()
     plt.grid(True)
     plt.show()
@@ -1219,6 +1193,8 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     plt.title('Fitness Score over Generations')
     plt.xlabel('Generation')
     plt.ylabel('Best Fitness Score')
+    plt.grid(True)
+    plt.tight_layout()
     plt.legend()
     plt.show()
 
