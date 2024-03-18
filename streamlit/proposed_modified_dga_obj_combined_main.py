@@ -1,5 +1,6 @@
 import random
 from datetime import datetime, timedelta
+from multiprocessing import Process, Manager, Event
 import matplotlib.pyplot as plt
 import time
 import numpy as np
@@ -28,64 +29,28 @@ def adjust_time_slot_selection(course_duration, time_slots):
 
 # ------------------------ Initialization Functions ------------------------
 
-# Updated function to include correct day, time slot, and room assignments
-# def initialize_population(population_size, faculty_data, courses_units, courses, rooms, days, time_slots):
-#     population = []
-#     for _ in range(population_size):
-#         chromosome = []
-#         for faculty in faculty_data:
-#             assigned_courses_with_details = []
-#             remaining_units = faculty['max_units']
-#             shuffled_courses = random.sample(courses, len(courses))
-
-#             for course in shuffled_courses:
-#                 course_units = courses_units[course]
-#                 if course_units <= remaining_units:
-#                     room = random.choice(rooms)
-#                     day = random.choice(faculty['availability'])
-#                     adjusted_time_slot = adjust_time_slot_selection(course_units, time_slots)
-#                     if adjusted_time_slot:
-#                         assigned_courses_with_details.append((course, room, day, adjusted_time_slot))
-#                         remaining_units -= course_units
-
-#             chromosome.append({
-#                 'id': faculty['id'],
-#                 'max_units': faculty['max_units'],
-#                 'total_assigned_units': faculty['max_units'] - remaining_units,
-#                 'assigned_courses_with_details': assigned_courses_with_details
-#             })
-#         population.append(chromosome)
-#     return population
+def logistic_map(x, r=4.0):
+    """Logistic map function for chaotic mapping."""
+    return r * x * (1 - x)
 
 def initialize_population(population_size, faculty_data, courses_units, courses, rooms, days, time_slots):
-    """
-    Initializes the population with chromosomes, considering faculty availability when assigning courses.
-    Ensures that courses are assigned to days when the faculty member is available.
-
-    Parameters:
-    - population_size (int): The size of the population to be initialized.
-    - faculty_data (list): List containing faculty availability and other details.
-    - courses_units (dict): A dictionary mapping each course to its unit value.
-    - courses (list): List of all courses.
-    - rooms (list): List of available rooms.
-    - days (list): List of all possible days.
-    - time_slots (list): List of available time slots.
-
-    Returns:
-    - list: A list of chromosomes representing the initial population.
-    """
     population = []
+    x0 = random.uniform(0, 1)  # Initial value for chaotic sequence
+    
     for _ in range(population_size):
         chromosome = []
+        x = x0  # Reset to initial value for each chromosome
+        
         for faculty in faculty_data:
             assigned_courses_with_details = []
             remaining_units = faculty['max_units']
             shuffled_courses = random.sample(courses, len(courses))
-
+            
             for course in shuffled_courses:
-                if courses_units[course] <= remaining_units:
+                x = logistic_map(x)  # Update x using chaotic mapping
+                if courses_units[course] <= remaining_units and x > 0.5:  # Use chaotic condition
                     room = random.choice(rooms)
-                    available_days = faculty['availability']  # Only use faculty's available days
+                    available_days = faculty['availability']
                     day = random.choice(available_days)
                     adjusted_time_slot = adjust_time_slot_selection(courses_units[course], time_slots)
                     if adjusted_time_slot:
@@ -100,8 +65,6 @@ def initialize_population(population_size, faculty_data, courses_units, courses,
             })
         population.append(chromosome)
     return population
-
-
 
 def print_population(population, faculty_data):
     for chromosome_index, chromosome in enumerate(population, start=1):
@@ -124,7 +87,6 @@ def print_population(population, faculty_data):
                     print(f"      - Course: {course}, Room: {room}, Day: {day}, Time Slot: {time_slot}")
                 print("  " + "-" * 50)  # Separator for readability within a chromosome
         print("\n" + "=" * 60)  # Separator between chromosomes
-
 
 # ------------------------ Fitness Functions ------------------------
 
@@ -317,34 +279,6 @@ def print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2):
 
 # ------------------------ Crossover Functions ------------------------
 
-# def crossover(parent1, parent2):
-#     """
-#     Performs a crossover between two parent chromosomes to generate two offspring.
-#     Swaps courses, rooms, days, and time slots between parents.
-
-#     Parameters:
-#         parent1 (list): The first parent chromosome.
-#         parent2 (list): The second parent chromosome.
-
-#     Returns:
-#         tuple: Two new chromosomes (offspring) resulting from the crossover.
-#     """
-#     # Clone parents to create offspring that are initially copies of the parents
-#     offspring1 = [faculty.copy() for faculty in parent1]
-#     offspring2 = [faculty.copy() for faculty in parent2]
-
-#     # Determine crossover points randomly
-#     cross_points = random.sample(range(len(parent1)), 2)
-#     cross_point1, cross_point2 = min(cross_points), max(cross_points)
-
-#     # Perform the swap between the two cross points for each offspring
-#     for i in range(cross_point1, cross_point2 + 1):
-#         # Swap assigned courses, rooms, days, and time slots between parents
-#         offspring1[i]['assigned_courses_with_details'], offspring2[i]['assigned_courses_with_details'] = \
-#             offspring2[i]['assigned_courses_with_details'], offspring1[i]['assigned_courses_with_details']
-
-#     return offspring1, offspring2
-
 def crossover(parent1, parent2, faculty_data):
     """
     Performs a crossover between two parent chromosomes to generate two offspring,
@@ -453,73 +387,6 @@ def times_overlap(time_slot1, time_slot2):
 
 # ------------------------ Mutation Functions ------------------------
 
-# def mutate(chromosome, mutation_rate, courses, rooms, days, time_slots, faculty_data):
-#     """
-#     Applies mutation to a given chromosome based on the mutation rate, with mutations considering faculty availability,
-#     avoiding conflicts with consulting hours, and preventing room overlaps. This ensures that course days are only
-#     mutated to days when the faculty member is available, do not overlap with their consulting hours, and avoid
-#     double booking of rooms.
-
-#     Parameters:
-#         chromosome (list): The chromosome to mutate.
-#         mutation_rate (float): The probability of mutation for each element of the chromosome.
-#         courses (list): List of all possible courses.
-#         rooms (list): List of available rooms.
-#         days (list): List of all possible days.
-#         time_slots (list): List of available time slots.
-#         faculty_data (list): List containing faculty availability and other details including consulting hours.
-
-#     Returns:
-#         list: The mutated chromosome with consideration to faculty availability, consulting hours, and room booking.
-#     """
-#     for faculty_schedule in chromosome:
-#         faculty_id = faculty_schedule['id']
-#         faculty_info = next((item for item in faculty_data if item['id'] == faculty_id), None)
-#         if not faculty_info:
-#             continue  # Skip if faculty info is not found
-
-#         if random.random() < mutation_rate:
-#             for course_detail_index, course_detail in enumerate(faculty_schedule['assigned_courses_with_details']):
-#                 mutation_choice = random.choice(['course', 'room', 'day', 'time_slot'])
-
-#                 # if mutation_choice == 'room':
-#                 #     new_room = random.choice(rooms)
-#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:1] + (new_room,) + course_detail[2:]
-
-#                 # if mutation_choice == 'day':
-#                 #     new_day = random.choice([day for day in days if day in faculty_info['availability']])
-#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
-
-#                 # if mutation_choice == 'time_slot':
-#                 #     new_time_slot = random.choice(time_slots)
-#                 #     faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-
-#                 if mutation_choice == 'room':
-#                     # Attempt to select a new room that does not result in overlaps
-#                     for _ in range(10):  # Try up to 10 times to find a non-overlapping room
-#                         new_room = random.choice(rooms)
-#                         if not causes_room_overlap(faculty_schedule['assigned_courses_with_details'], course_detail_index, new_room, chromosome):
-#                             faculty_schedule['assigned_courses_with_details'][course_detail_index] = (course_detail[0], new_room) + course_detail[2:]
-#                             break
-
-#                 if mutation_choice == 'day':
-#                     new_day = random.choice([day for day in days if day in faculty_info['availability']])
-#                     # Check for consulting hour conflicts before applying the mutation
-#                     if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_info['consulting_hours']):
-#                         faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:2] + (new_day,) + course_detail[3:]
-
-#                 if mutation_choice == 'time_slot':
-#                     # Attempt to select a new time slot that does not conflict with consulting hours
-#                     for _ in range(10):  # Try up to 10 times to find a non-conflicting time slot
-#                         new_time_slot = random.choice(time_slots)
-#                         if not conflicts_with_consulting_hours(course_detail[2], new_time_slot, faculty_info['consulting_hours']):
-#                             faculty_schedule['assigned_courses_with_details'][course_detail_index] = course_detail[:3] + (new_time_slot,)
-#                             break
-
-#                 # Other mutation logic for 'course' and 'room' remains unchanged
-
-#     return chromosome
-
 def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5):
     """
     Objective 1: Adaptive mutation strategy inspired by Differential Evolution (DE) to apply changes to a single chromosome within the context of a scheduling problem.
@@ -538,6 +405,7 @@ def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5)
     Returns:
     - Mutated chromosome with potentially altered course assignments.
     """
+
     # Ensure there are enough individuals for DE operation, excluding the current chromosome
     eligible_population = [ind for ind in population if ind != chromosome]
     if len(eligible_population) < 3:
@@ -1023,306 +891,142 @@ best_solutions = {island_name: None for island_name in islands}
 for island_name in islands.keys():
     islands[island_name] = initialize_population(CHROMOSOMES_PER_ISLAND, faculty_data, courses_units_adjusted, courses, rooms, days, time_slots)
 
-# ------------------------------ Print Initial Populations ------------------------------
-
-# # Example usage to print the initialized populations for each island, now including faculty details
-# for island_name, population in islands.items():
-#     print(f"Initial Population for {island_name}:")
-#     print_population(population, faculty_data)
-
-# ------------------------------ Print Fitness Scores ------------------------------
-
-# # Calculate and print fitness scores for the initial population of each island
-# for island_name, population in islands.items():
-#     print(f"Fitness Scores for {island_name}:")
-#     for index, chromosome in enumerate(population, start=1):
-#         fitness_score = calculate_fitness(chromosome, faculty_data)
-#         print(f"  Chromosome {index}: Fitness Score = {fitness_score}")
-#     print("-" * 40)
-
-# ------------------------------ Rank Selection ------------------------------
-
-# # Assuming `population` and `faculty_data` are defined as in your codebase
-# population = islands["Island_1"]  # Example: Using the first island's population
-# parent1, parent2, fitness1, fitness2 = rank_selection(population, faculty_data)
-
-# print('\n')
-# print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2)
-
-# ------------------------------ Crossover ------------------------------
-
-# # Assuming parent1 and parent2 have been selected
-# offspring1, offspring2 = crossover(parent1, parent2)
-
-# # You can print or evaluate the offspring as needed
-# # For example, to print the fitness of the offspring:
-# print('\n')
-# print("Offspring 1 Fitness:", calculate_fitness(offspring1, faculty_data))
-# print("Offspring 2 Fitness:", calculate_fitness(offspring2, faculty_data))
-# print('\n')
-
-# ------------------------------ Mutation ------------------------------
-
-# # Apply mutation to each offspring
-# mutated_offspring1 = mutate(offspring1, MUTATION_RATE, courses, rooms, days, time_slots)
-# mutated_offspring2 = mutate(offspring2, MUTATION_RATE, courses, rooms, days, time_slots)
-
-# # Evaluate the fitness of mutated offspring (optional, for demonstration)
-# print("Mutated Offspring 1 Fitness:", calculate_fitness(mutated_offspring1, faculty_data))
-# print("Mutated Offspring 2 Fitness:", calculate_fitness(mutated_offspring2, faculty_data))
-
-# ------------------------------ Elitism ------------------------------
-
-# # Example: Selecting elites from the current population
-# elites, elite_fitness_scores = select_elites(population, faculty_data, n_elites=2)
-# print('\n')
-# print("Selected Elites and Their Fitness:")
-# print_elites_with_fitness(elites, elite_fitness_scores)
-
-# ------------------------------ Migration ------------------------------
-
-# print('\n')
-
-# # Usage example
-# migrate_selected_individuals_between_islands(islands, num_migrants=2, migration_rate=0.5)
-
 # ------------------------------ Main Distributed Genetic Algorithm Loop ------------------------------
+
+def island_process(island_name, island_population, faculty_data, num_generations, mutation_rate, migration_pool, migration_log, shared_dict, fitness_scores, diversity_scores, optimal_found_event):
+    """
+    Executes the genetic algorithm for a single island.
+    """
+    for generation in range(1, num_generations + 1):
+        # Check if the optimal solution is found, terminate if so
+        if optimal_found_event.is_set():
+            print(f"{island_name} terminating early due to global optima found.")
+            # Update shared_dict with the best solution found by the island before terminating
+            best_solution = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
+            shared_dict[island_name] = best_solution
+            return
+
+        # Selection: Rank Selection
+        parent1, parent2, fitness1, fitness2 = rank_selection(island_population, faculty_data)
+
+        # Crossover
+        offspring1, offspring2 = crossover(parent1, parent2, faculty_data)
+
+        # Mutation
+        mutated_offspring1 = mutate(offspring1, island_population, rooms, days, time_slots, faculty_data)
+        mutated_offspring2 = mutate(offspring2, island_population, rooms, days, time_slots, faculty_data)
+
+        # Elitism and Populations Update
+        elites, elite_fitness_scores = select_elites(island_population, faculty_data)
+        island_population[-4:-2] = [mutated_offspring1, mutated_offspring2]
+        island_population[-2:] = elites
+
+        # Fitness Re-evaluation for logging
+        updated_fitness_scores = [calculate_fitness(chromosome, faculty_data) for chromosome in island_population]
+        best_fitness = max(updated_fitness_scores)
+        print(f'Best Fitness in {island_name}: {best_fitness}')
+
+        # Calculate and log best fitness for the generation
+        best_fitness = max([calculate_fitness(chromosome, faculty_data) for chromosome in island_population])
+        fitness_scores[island_name].append(best_fitness)
+
+        # Calculate and log diversity for the generation
+        diversity = calculate_diversity(island_population)
+        diversity_scores[island_name].append(diversity)
+
+        # Migration handling
+        while not migration_pool.empty():
+            try:
+                migrant_info = migration_pool.get_nowait()
+                if migrant_info['destination'] == island_name:  # Ensure the migrant is intended for this island
+                    # Proceed with migration logic
+                    least_fit_idx = island_population.index(min(island_population, key=lambda x: calculate_fitness(x, faculty_data)))
+                    island_population[least_fit_idx] = migrant_info['chromosome']
+                    print(f"Migrated to {island_name} from {migrant_info['source']}: {migrant_info['chromosome']}")
+                    migration_log.put(f"{migrant_info['source']} -> {island_name}: {migrant_info['chromosome']}")
+            except Exception as e:
+                break  # If the pool is empty or an error occurs
+
+        # Contribute the best chromosome to the migration pool every few generations
+        if generation % 5 == 0:
+            best_chromosome = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
+            # Randomly select a destination island different from the current one
+            destinations = [name for name in shared_dict.keys() if name != island_name]
+            if destinations:  # Ensure there's at least one possible destination
+                destination = random.choice(destinations)
+                migration_pool.put({"source": island_name, "chromosome": best_chromosome, "destination": destination})
+
+        # Update shared_dict with the best chromosome found by the island
+        best_chromosome = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
+        shared_dict[island_name] = best_chromosome
+
+        # Check for global optima
+        if best_fitness == 0:
+            optimal_found_event.set()
+            print(f"Optimal solution found by {island_name} at generation {generation}. Terminating all processes.")
+            return
 
 # Main Distributed Genetic Algorithm Loop
 def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migration_rate=0.1, num_migrants=2):
-    """
-    Executes the Distributed Genetic Algorithm across multiple islands, evolving solutions over generations.
-
-    Parameters:
-        islands (dict): Dictionary of islands, where each key is an island name and its value is the island's population.
-        faculty_data (list): Detailed information about faculty members, including their availability and constraints.
-        num_generations (int): The total number of generations to evolve.
-        mutation_rate (float): Probability of mutation for each gene within a chromosome.
-        migration_rate (float): Probability of migration event between islands per generation.
-        num_migrants (int): Number of individuals to migrate between islands during a migration event.
-    """
-    # Start time of the algorithm
     start_time = time.time()
-    print("Start Time:", time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time)))
 
-    global_best_fitness = float('-inf')  # Initialize with the worst possible fitness
-    global_best_solution = None
-    optimal_reached = False  # Flag to indicate if the optimal solution is found
+    manager = Manager()
+    shared_dict = manager.dict()
+    migration_pool = manager.Queue()
+    migration_log = manager.Queue()
+    fitness_scores = manager.dict({island_name: manager.list() for island_name in islands})
+    diversity_scores = manager.dict({island_name: manager.list() for island_name in islands})
+    optimal_found_event = Event()
+    processes = []
 
-    # Initialize a dictionary to store fitness scores for plotting
-    fitness_scores_over_generations = {island_name: [] for island_name in islands.keys()}
+    for island_name, island_population in islands.items():
+        p = Process(target=island_process, args=(island_name, island_population, faculty_data, num_generations, mutation_rate, migration_pool, migration_log, shared_dict, fitness_scores, diversity_scores, optimal_found_event))
+        p.start()
+        processes.append(p)
 
-    # Initialize a list to store diversity scores for plotting
-    diversity_scores_over_generations = []
+    for p in processes:
+        p.join()
 
-    # Initialize a dictionary to store diversity scores for each island
-    island_diversity_scores_over_generations = {island_name: [] for island_name in islands.keys()}
+    migration_logs = []
+    while not migration_log.empty():
+        log_entry = migration_log.get()
+        migration_logs.append(log_entry)
 
-    for generation in range(1, num_generations + 1):
-
-        # Temporary list to hold populations for diversity calculation
-        temp_population_aggregate = []
-
-        # ----------------------------- Evolutionary Steps -----------------------------
-
-        print(f"\n=== Generation {generation} ===")
-
-        # Iterate through each island
-        for island_name, population in islands.items():
-            print(f"\nProcessing {island_name}...")
-
-            # Selection
-
-            # Rank
-            parent1, parent2, fitness1, fitness2 = rank_selection(population, faculty_data)
-
-            # Tournament
-            # parent1, parent2, fitness1, fitness2 = tournament_selection(population, faculty_data, tournament_size=3)
-
-            print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2)
-
-            # Crossover
-            # offspring1, offspring2 = crossover(parent1, parent2)
-            offspring1, offspring2 = crossover(parent1, parent2, faculty_data)
-
-            # Mutation
-            # mutated_offspring1 = mutate(offspring1, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
-            # mutated_offspring2 = mutate(offspring2, MUTATION_RATE, courses, rooms, days, time_slots, faculty_data)
-
-            # Mutate - With differential evolution mutation strategy
-            # def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5):
-
-            mutated_offspring1 = mutate(offspring1, population, rooms, days, time_slots, faculty_data)
-            mutated_offspring2 = mutate(offspring2, population, rooms, days, time_slots, faculty_data)
-
-            # Elitism and Population Update
-            elites, elite_fitness_scores = select_elites(population, faculty_data)
-            # Replace least fit individuals with new offspring and elites (simplified approach)
-            population[-4:-2] = [mutated_offspring1, mutated_offspring2]
-            population[-2:] = elites
-
-            # Fitness Re-evaluation for logging
-            updated_fitness_scores = [calculate_fitness(chromosome, faculty_data) for chromosome in population]
-            print(f"Best Fitness in {island_name}: {max(updated_fitness_scores)}")
-
-            # For plotting fitness scores over generations
-            best_fitness_this_generation = max(updated_fitness_scores)
-            fitness_scores_over_generations[island_name].append(best_fitness_this_generation)
-
-            # For diversity calculation
-            temp_population_aggregate.extend(population)
-
-            # Calculate diversity for the current island and append to its list
-            current_island_diversity = calculate_diversity(population)
-            island_diversity_scores_over_generations[island_name].append(current_island_diversity)
-
-            current_best_fitness = max(updated_fitness_scores)
-            if current_best_fitness == optimal_fitness_threshold:
-                global_best_fitness = current_best_fitness
-                global_best_solution = max(population, key=lambda chromosome: calculate_fitness(chromosome, faculty_data))
-                optimal_reached = True
-                print(f"Optimal solution found in {island_name} at generation {generation} with fitness: {global_best_fitness}")
-                break  # Breaks out of the island loop
-
-            # Assuming the above steps are executed, we then find the best fitness in the current island
-            current_best_fitness = max([calculate_fitness(chromosome, faculty_data) for chromosome in population])
-            if current_best_fitness > global_best_fitness:
-                global_best_fitness = current_best_fitness
-                global_best_solution = max(population, key=lambda chromosome: calculate_fitness(chromosome, faculty_data))
-
-            print(f"Best Fitness in {island_name}: {current_best_fitness}")
-
-        # After processing all islands, calculate diversity for the entire set of islands
-        # If diversity is calculated across all islands, aggregate populations here
-        aggregated_population = [chromosome for island_population in islands.values() for chromosome in island_population]
-        diversity_score = calculate_diversity(aggregated_population)  # Calculate diversity for aggregated population
-        diversity_scores_over_generations.append(diversity_score)
-
-        if optimal_reached:
-            print(f"Optimal solution found at generation {generation} with fitness: {global_best_fitness}")
-            break
-
-        # Migration between islands
-        if generation % 5 == 0:  # Example condition to perform migration every 5 generations
-            print("\n-- Migration Event --")
-            migrate_selected_individuals_between_islands(islands, num_migrants=num_migrants, migration_rate=migration_rate)
-
-
-    if not optimal_reached:
-        # Analyze the global best solution from all generations if no optimal solution was found
-        global_best_solution, global_best_fitness = max(
-            [(chromosome, calculate_fitness(chromosome, faculty_data)) for island in islands.values() for chromosome in island],
-            key=lambda item: item[1]
-        )
-
-    # ----------------------------- End of Algorithm -----------------------------
-
-    # End time of the algorithm
     end_time = time.time()
-    print("\nEnd Time:", time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time)))
-
-    # Total time taken
     total_time = end_time - start_time
-    print(f"Total Time: {total_time:.2f} seconds")
 
-    # ----------------------------- Plotting or analyzing diversity scores -----------------------------
+    # Collect fitness scores over generations
+    fitness_scores_over_generations = {island_name: list(scores) for island_name, scores in fitness_scores.items()}
 
-    # Plotting or analyzing diversity scores...
-    # You can plot the diversity of each island over generations to observe how they evolve
-    for island_name, diversities in island_diversity_scores_over_generations.items():
-        plt.plot(diversities, label=island_name)
+    # Collect island diversity scores over generations
+    island_diversity_scores_over_generations = {island_name: list(scores) for island_name, scores in diversity_scores.items()}
 
-    plt.title('Island Diversity Over Generations')
-    plt.xlabel('Generation')
-    plt.ylabel('Diversity Score')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.legend()
-    plt.show()
+    # Calculate overall diversity scores over generations
+    diversity_scores_over_generations = []
+    for generation in range(num_generations):
+        generation_diversity = sum(island_diversity_scores_over_generations[island_name][generation] for island_name in islands if generation < len(island_diversity_scores_over_generations[island_name]))
+        diversity_scores_over_generations.append(generation_diversity)
 
-    # ----------------------------- Plotting Diversity Scores -----------------------------
+    # Find the global best solution and its fitness
+    global_best_solution = None
+    global_best_fitness = float('-inf')
+    for island_name, island_solution in shared_dict.items():
+        island_fitness = calculate_fitness(island_solution, faculty_data)
+        if island_fitness > global_best_fitness:
+            global_best_solution = island_solution
+            global_best_fitness = island_fitness
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(diversity_scores_over_generations, label='Diversity Score')
-    plt.title('Diversity Score Over Generations')
-    plt.xlabel('Generation')
-    plt.ylabel('Diversity Score')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # Prepare the data to return
+    results = {
+        'total_time': total_time,
+        'global_best_fitness': global_best_fitness,
+        'global_best_solution': global_best_solution,
+        'fitness_scores_over_generations': fitness_scores_over_generations,
+        'island_diversity_scores_over_generations': island_diversity_scores_over_generations,
+        'diversity_scores_over_generations': diversity_scores_over_generations
+    }
 
-    # ----------------------------- Plotting Fitness Scores -----------------------------
+    return results
 
-    # Plotting part
-    for island_name, scores in fitness_scores_over_generations.items():
-        plt.plot(scores, label=island_name)
-
-    plt.title('Fitness Score over Generations')
-    plt.xlabel('Generation')
-    plt.ylabel('Best Fitness Score')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.legend()
-    plt.show()
-
-    # ----------------------------- Final Analysis -----------------------------
-
-    # After all generations, analyze the global best solution
-    best_fitness, penalty_details = calculate_fitness_detailed(global_best_solution, faculty_data)
-    print("\n=== Global Best Solution ===")
-    print(f"Global Best Fitness: {best_fitness}")
-    print("\nPenalty Breakdown:")
-    for penalty_type, penalty_value in penalty_details.items():
-        print(f"  {penalty_type}: {penalty_value}")
-    print('\n')
-
-    print_chromosome_details(global_best_solution)
-
-    # Printing checker results for the global best solution
-    print("\n=== Penalties in Global Best Solution ===")
-
-    # Check and print overlaps
-    overlaps = check_for_overlaps(global_best_solution)
-    print("\nOverlaps:")
-    print_overlaps(overlaps)
-
-    # Check and print daily overloads
-    daily_overloads = check_for_daily_overloads(global_best_solution)
-    print("\nDaily Overloads:")
-    print_daily_overloads(daily_overloads)
-
-    # Check and print consulting hour conflicts
-    conflicts = check_for_consulting_hour_conflicts(global_best_solution, faculty_data)
-    print("\nConsulting Hour Conflicts:")
-    print_consulting_hour_conflicts(conflicts)
-
-# Initialize and run the DGA
-run_dga(islands, faculty_data, num_generations=NUM_GENERATIONS, mutation_rate=MUTATION_RATE, migration_rate=0.5, num_migrants=2)
-
-# ------------------------------- Printing Checkers -------------------------------
-
-# # Check and print overlaps for the initial population of each island
-# for island_name, population in islands.items():
-#     print(f"\nChecking overlaps for {island_name}:")
-#     for index, chromosome in enumerate(population, start=1):
-#         overlaps = check_for_overlaps(chromosome)
-#         print(f"Chromosome {index}:")
-#         print_overlaps(overlaps)
-
-# # Check and print daily overloads for the initial population of each island
-# for island_name, population in islands.items():
-#     print(f"\nChecking daily overloads for {island_name}:")
-#     for index, chromosome in enumerate(population, start=1):
-#         daily_overloads = check_for_daily_overloads(chromosome)
-#         print(f"Chromosome {index}:")
-#         print_daily_overloads(daily_overloads)
-
-# # Check and print consulting hour conflicts for the initial population of each island
-# for island_name, population in islands.items():
-#     print(f"\nChecking consulting hour conflicts for {island_name}:")
-#     for index, chromosome in enumerate(population, start=1):
-#         conflicts = check_for_consulting_hour_conflicts(chromosome, faculty_data)
-#         print(f"Chromosome {index}:")
-#         print_consulting_hour_conflicts(conflicts)
+if __name__ == "__main__":
+    run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, num_migrants=2)
