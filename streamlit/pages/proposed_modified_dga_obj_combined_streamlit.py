@@ -16,9 +16,15 @@ if 'editing_index' not in st.session_state:
 if 'show_settings' not in st.session_state:
     st.session_state['show_settings'] = False
 if 'courses_units' not in st.session_state:
-    st.session_state['courses_units'] = {
-        'course1': 3, 'course2': 3, 'course3': 4, 'course4': 2, 'course5': 3, 'course6': 5,
-        'course7': 3, 'course8': 4, 'course9': 2, 'course10': 3, 'course11': 4, 'course12': 5
+    # st.session_state['courses_units'] = {
+    #     'Subject 1': 3, 'Subject 2': 3, 'Subject 3': 4, 'Subject 4': 2, 'Subject 5': 3, 'Subject 6': 5,
+    #     'Subject 7': 3, 'Subject 8': 4, 'Subject 9': 2, 'Subject 10': 3, 'Subject 11': 4, 'Subject 12': 5
+    # }
+    st.session_state['subjects_units'] = {
+        'Subject 1 (Lab)': 3, 'Subject 1 (Lec)': 3, 'Subject 2 (Lab)': 3, 'Subject 2 (Lec)': 3,
+        'Subject 3 (Lab)': 1, 'Subject 3 (Lec)': 2, 'Subject 4 (Lab)': 2, 'Subject 4 (Lec)': 2,
+        'Subject 5 (Lab)': 3, 'Subject 5 (Lec)': 3, 'Subject 6 (Lab)': 1, 'Subject 6 (Lec)': 2,
+        # Add more subjects as needed
     }
 
 def add_faculty_form(editing_index=None):

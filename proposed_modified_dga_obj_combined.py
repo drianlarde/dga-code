@@ -854,7 +854,7 @@ courses_units = {
 
 courses = list(courses_units.keys())
 
-rooms = ['room' + str(i) for i in range(1, 24)]  # 23 rooms available
+# rooms = ['room' + str(i) for i in range(1, 24)]  # 23 rooms available
 
 days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -875,7 +875,8 @@ courses_units_adjusted = {course: min(units, 3) for course, units in courses_uni
 # Generate a balanced assignment of course durations
 balanced_course_durations = balanced_course_duration_assignment(courses_units_adjusted)
 
-rooms = [f'room{i}' for i in range(1, 24)]
+# rooms = [f'room{i}' for i in range(1, 24)]
+rooms = [f'room{i}' for i in range(1, 8)]
 
 # Initialize populations for each island
 islands = {f"Island_{i+1}": [] for i in range(NUM_ISLANDS)}
