@@ -196,6 +196,27 @@ def display_dga_results(dga_results):
     st.markdown("This chart shows the overall diversity scores across all islands over the generations.")
     st.line_chart({"Overall Diversity": dga_results['diversity_scores_over_generations']})
 
+    st.markdown("## Penalties in Global Best Solution")
+    if dga_results['global_best_penalties'] is None:
+        st.warning("No penalty information available.")
+    else:
+        for penalty_type, penalty_details in dga_results['global_best_penalties'].items():
+            st.write(f"### {penalty_type.replace('_', ' ').title()}")
+            if penalty_details:
+                for detail in penalty_details:
+                    if penalty_type == 'availability_violations':
+                        st.write(f"- Faculty {detail['faculty_id']}: Course {detail['course']} assigned on {detail['day']}")
+                    elif penalty_type == 'room_overlaps':
+                        st.write(f"- Faculty {detail['faculty1']} and Faculty {detail['faculty2']}: Courses {detail['details'][0]['course']} and {detail['details'][1]['course']} overlap in Room {detail['details'][0]['room']} on {detail['details'][0]['day']} at {detail['details'][0]['time_slot']}")
+                    elif penalty_type == 'daily_overloads':
+                        st.write(f"- Faculty {detail['faculty_id']} is overloaded on {detail['day']}, scheduled for {detail['hours']:.2f} hours")
+                    elif penalty_type == 'consulting_hour_conflicts':
+                        st.write(f"- Faculty {detail['faculty_id']}: Course at {detail['course_time_slot']} conflicts with consulting hours at {detail['consulting_time_slot']}")
+                    elif penalty_type == 'lab_subjects':
+                        st.write(f"- Faculty {detail['faculty_id']}: Assigned lab course {detail['course']}")
+            else:
+                st.write("No penalties of this type.")
+
 def display_settings():
     st.subheader("Distributed Genetic Algorithm Settings")
     NUM_GENERATIONS = st.number_input("Number of Generations", min_value=1, value=100, step=1)
@@ -205,9 +226,15 @@ def display_settings():
     MIGRATION_RATE = st.slider("Migration Rate", min_value=0.0, max_value=1.0, value=0.1, step=0.01)
     NUM_MIGRANTS = st.number_input("Number of Migrants", min_value=1, value=2, step=1)
 
+    st.subheader("Penalty Values")
+    PENALTY_VALUE_FOR_AVAILABILITY = st.slider("Availability Violation", 0, 100, 10)
+    PENALTY_VALUE_FOR_OVERLAP = st.slider("Room Overlap", 0, 100, 10)
+    PENALTY_VALUE_FOR_DAILY_OVERLOAD = st.slider("Daily Overload", 0, 100, 10)
+    PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT = st.slider("Consulting Hour Conflict", 0, 100, 10)
+
     display_subjects()
 
-    return NUM_GENERATIONS, MUTATION_RATE, POPULATION_SIZE, NUM_ISLANDS, MIGRATION_RATE, NUM_MIGRANTS
+    return NUM_GENERATIONS, MUTATION_RATE, POPULATION_SIZE, NUM_ISLANDS, MIGRATION_RATE, NUM_MIGRANTS, PENALTY_VALUE_FOR_AVAILABILITY, PENALTY_VALUE_FOR_OVERLAP, PENALTY_VALUE_FOR_DAILY_OVERLOAD, PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT
 
 def generate_random_faculty(num_faculty):
     available_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -247,8 +274,14 @@ def main():
     MIGRATION_RATE = 0.1
     NUM_MIGRANTS = 2
 
+    # Initialize penalty values with defaults
+    PENALTY_VALUE_FOR_AVAILABILITY = 10
+    PENALTY_VALUE_FOR_OVERLAP = 10
+    PENALTY_VALUE_FOR_DAILY_OVERLOAD = 10
+    PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT = 10
+
     if st.session_state['show_settings']:
-        NUM_GENERATIONS, MUTATION_RATE, POPULATION_SIZE, NUM_ISLANDS, MIGRATION_RATE, NUM_MIGRANTS = display_settings()
+        NUM_GENERATIONS, MUTATION_RATE, POPULATION_SIZE, NUM_ISLANDS, MIGRATION_RATE, NUM_MIGRANTS, PENALTY_VALUE_FOR_AVAILABILITY, PENALTY_VALUE_FOR_OVERLAP, PENALTY_VALUE_FOR_DAILY_OVERLOAD, PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT = display_settings()  # Get penalty values from sliders
 
     if st.session_state['editing_index'] is None:
         add_faculty_form()
@@ -298,7 +331,18 @@ def main():
 
         terminal_output = st.empty()
         with st.spinner("Running Distributed Genetic Algorithm..."):
-            dga_results = run_dga(islands, st.session_state.faculty_list, num_generations=NUM_GENERATIONS, mutation_rate=MUTATION_RATE, migration_rate=MIGRATION_RATE, num_migrants=NUM_MIGRANTS)
+            dga_results = run_dga(
+                islands,
+                st.session_state.faculty_list,
+                num_generations=NUM_GENERATIONS,
+                mutation_rate=MUTATION_RATE,
+                migration_rate=MIGRATION_RATE,
+                num_migrants=NUM_MIGRANTS,
+                availability_penalty=PENALTY_VALUE_FOR_AVAILABILITY,
+                overlap_penalty=PENALTY_VALUE_FOR_OVERLAP,
+                overload_penalty=PENALTY_VALUE_FOR_DAILY_OVERLOAD,
+                consulting_conflict_penalty=PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT
+            )
 
         display_dga_results(dga_results)
 

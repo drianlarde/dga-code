@@ -695,7 +695,7 @@ def print_consulting_hour_conflicts(conflicts):
 NUM_GENERATIONS = 100  # Number of generations to evolve the population
 MUTATION_RATE = 0.1  # Mutation rate
 POPULATION_SIZE = 10
-NUM_ISLANDS = 4
+NUM_ISLANDS = 2
 CHROMOSOMES_PER_ISLAND = POPULATION_SIZE // NUM_ISLANDS  # 20 chromosomes per island
 
 faculty_data = [

@@ -2,7 +2,6 @@ import random
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import numpy as np  # Ensure NumPy is imported for numerical operations if needed
-import streamlit as st
 
 import time
 
@@ -13,7 +12,6 @@ def balanced_course_duration_assignment(courses_units):
     duration_choices = [1, 2, 3]  # Allowed durations
     assigned_durations = {course: random.choice(duration_choices) for course in courses_units.keys()}
     return assigned_durations
-
 
 def adjust_time_slot_selection(course_duration, time_slots):
     """Select a start time slot that can accommodate the course duration."""
@@ -106,7 +104,6 @@ def initialize_population(population_size, faculty_data, courses_units, courses,
 
 
 
-
 def print_population(population, faculty_data):
     for chromosome_index, chromosome in enumerate(population, start=1):
         print(f"Chromosome {chromosome_index}:")
@@ -181,7 +178,6 @@ def calculate_fitness(chromosome, faculty_data, max_hours_per_day=4):
     fitness_score = -penalty  # Using negative score because lower (more negative) is worse
     return fitness_score
 
-
 def calculate_fitness_detailed(chromosome, faculty_data, max_hours_per_day=4):
     """
     Calculate the fitness for a single chromosome, incorporating penalties for various constraints,
@@ -243,7 +239,6 @@ def calculate_fitness_detailed(chromosome, faculty_data, max_hours_per_day=4):
 
     return fitness_score, penalties
 
-
 # ------------------------ Selection Functions ------------------------
 
 def rank_selection(population, faculty_data):
@@ -264,7 +259,6 @@ def rank_selection(population, faculty_data):
     # Select the top two chromosomes as parents
     parent1, parent2 = sorted_population[0][0], sorted_population[1][0]
     return parent1, parent2, sorted_population[0][1], sorted_population[1][1]
-
 
 def tournament_selection(population, faculty_data, tournament_size=3):
     """
@@ -296,7 +290,6 @@ def tournament_selection(population, faculty_data, tournament_size=3):
 
     return parent1, parent2, fitness1, fitness2
 
-
 def print_chromosome_details(chromosome):
     """
     Prints the details of a chromosome.
@@ -310,7 +303,6 @@ def print_chromosome_details(chromosome):
         for course_detail in faculty_schedule['assigned_courses_with_details']:
             print(f"    - Course: {course_detail[0]}, Room: {course_detail[1]}, Day: {course_detail[2]}, Time Slot: {course_detail[3]}")
 
-
 def print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2):
     """
     Prints the selected parents and their fitness in a structured format.
@@ -323,7 +315,6 @@ def print_selected_parents_with_fitness(parent1, parent2, fitness1, fitness2):
     # print_chromosome_details(parent1)
     print("Selected Parent 2 (Fitness: {:.2f}):".format(fitness2))
     # print_chromosome_details(parent2)
-
 
 # ------------------------ Crossover Functions ------------------------
 
@@ -394,7 +385,6 @@ def crossover(parent1, parent2, faculty_data):
 
     return offspring1, offspring2
 
-
 def will_cause_consulting_conflict(faculty_schedule, faculty_data):
     """
     Checks if assigning courses from one parent to another would cause a conflict
@@ -420,7 +410,6 @@ def will_cause_consulting_conflict(faculty_schedule, faculty_data):
                 return True  # Conflict detected
 
     return False  # No conflict detected
-
 
 def will_cause_room_overlap(faculty_schedule1, faculty_schedule2, full_population):
     """
@@ -448,21 +437,20 @@ def will_cause_room_overlap(faculty_schedule1, faculty_schedule2, full_populatio
 
     return False  # No overlap detected
 
+def times_overlap(time_slot1, time_slot2):
+    """
+    Determines if two time slots overlap.
 
-# def times_overlap(time_slot1, time_slot2):
-#     """
-#     Determines if two time slots overlap.
+    Parameters:
+        time_slot1 (str): The first time slot in the format 'HH:MM AM/PM - HH:MM AM/PM'.
+        time_slot2 (str): The second time slot in the same format.
 
-#     Parameters:
-#         time_slot1 (str): The first time slot in the format 'HH:MM AM/PM - HH:MM AM/PM'.
-#         time_slot2 (str): The second time slot in the same format.
-
-#     Returns:
-#         bool: True if the time slots overlap, False otherwise.
-#     """
-#     start1, end1 = [datetime.strptime(time, "%I:%M %p") for time in time_slot1.split(' - ')]
-#     start2, end2 = [datetime.strptime(time, "%I:%M %p") for time in time_slot2.split(' - ')]
-#     return max(start1, start2) < min(end1, end2)
+    Returns:
+        bool: True if the time slots overlap, False otherwise.
+    """
+    start1, end1 = [datetime.strptime(time, "%I:%M %p") for time in time_slot1.split(' - ')]
+    start2, end2 = [datetime.strptime(time, "%I:%M %p") for time in time_slot2.split(' - ')]
+    return max(start1, start2) < min(end1, end2)
 
 # ------------------------ Mutation Functions ------------------------
 
@@ -533,7 +521,6 @@ def mutate(chromosome, mutation_rate, courses, rooms, days, time_slots, faculty_
 
     return chromosome
 
-
 def conflicts_with_consulting_hours(day, time_slot, consulting_hours):
     """
     Checks if a given day and time slot conflicts with any of the consulting hours.
@@ -550,7 +537,6 @@ def conflicts_with_consulting_hours(day, time_slot, consulting_hours):
         if day == consulting_day and times_overlap(time_slot, consulting_time_slot):
             return True
     return False
-
 
 def causes_room_overlap(course_details, index, new_room, chromosome):
     """
@@ -571,7 +557,6 @@ def causes_room_overlap(course_details, index, new_room, chromosome):
             if course_detail[1] == new_room and course_detail[2] == day and times_overlap(course_detail[3], time_slot):
                 return True  # Overlap detected
     return False  # No overlap detected
-
 
 # ------------------------ Elitism Functions ------------------------
 
@@ -596,7 +581,6 @@ def select_elites(population, faculty_data, n_elites=2):
     elite_fitness_scores = [item[1] for item in sorted_population[:n_elites]]
     return elites, elite_fitness_scores
 
-
 def print_elites_with_fitness(elites, elite_fitness_scores):
     """
     Prints the elite chromosomes and their fitness in a structured format.
@@ -608,7 +592,6 @@ def print_elites_with_fitness(elites, elite_fitness_scores):
     for index, (elite, fitness) in enumerate(zip(elites, elite_fitness_scores), start=1):
         print(f"Elite {index} (Fitness: {fitness:.2f}):")
         # print_chromosome_details(elite)
-
 
 # ------------------------------ Migration Functions ------------------------------
 
@@ -648,7 +631,6 @@ def migrate_selected_individuals_between_islands(islands, num_migrants=1, migrat
     else:
         print("Migration did not occur this generation due to migration rate threshold.")
 
-
 # ------------------------ Diversity Functions ------------------------
 
 def calculate_diversity(population):
@@ -667,7 +649,6 @@ def calculate_diversity(population):
             for course_detail in faculty_schedule['assigned_courses_with_details']:
                 unique_assignments.add((course_detail[0], course_detail[2], course_detail[3], course_detail[1]))  # (course, day, time_slot, room)
     return len(unique_assignments)
-
 
 # ------------------------ Checker + Printing Functions ------------------------
 
@@ -700,7 +681,6 @@ def check_for_overlaps(chromosome):
 
     return overlaps
 
-
 def print_overlaps(overlaps):
     if not overlaps:
         print("  No overlaps detected.")
@@ -714,7 +694,6 @@ def print_overlaps(overlaps):
             else:
                 print(f"    - {faculty1} and {faculty2} have overlapping schedules:")
             print(f"      Course {assignment1['course']} and Course {assignment2['course']} overlap in Room {assignment1['room']}, on {assignment1['day']} during {assignment1['time_slot']}.")
-
 
 # --
 
@@ -750,7 +729,6 @@ def check_for_daily_overloads(chromosome, max_hours_per_day=4):
 
     return daily_overloads
 
-
 def print_daily_overloads(daily_overloads):
     if not daily_overloads:
         print("  No daily overloads detected.")
@@ -758,7 +736,6 @@ def print_daily_overloads(daily_overloads):
         print("  Daily overloads detected:")
         for overload in daily_overloads:
             print(f"    - Faculty {overload['faculty_id']} is overloaded on {overload['day']}, scheduled for {overload['hours']:.2f} hours.")
-
 
 # --
 
@@ -783,12 +760,10 @@ def check_for_consulting_hour_conflicts(chromosome, faculty_data):
                     })
     return conflicts
 
-
 def times_overlap(course_slot, consulting_slot):
     course_start, course_end = [datetime.strptime(time, "%I:%M %p") for time in course_slot.split(' - ')]
     consulting_start, consulting_end = [datetime.strptime(time, "%I:%M %p") for time in consulting_slot.split(' - ')]
     return max(course_start, consulting_start) < min(course_end, consulting_end)
-
 
 def print_consulting_hour_conflicts(conflicts):
     if not conflicts:
@@ -797,7 +772,6 @@ def print_consulting_hour_conflicts(conflicts):
         print("  Consulting hour conflicts detected:")
         for conflict in conflicts:
             print(f"    - Faculty {conflict['faculty_id']} has a teaching slot at {conflict['course_time_slot']} conflicting with consulting hours at {conflict['consulting_time_slot']}.")
-
 
 # ------------------------ Main Evolutionary Loop ------------------------
 
@@ -964,7 +938,6 @@ while start_time < end_time:
     time_slots.append(f"{start_time.strftime('%I:%M %p')} - {end_interval.strftime('%I:%M %p')}")
     start_time += timedelta(minutes=30)
 
-
 courses_units_adjusted = {course: min(units, 3) for course, units in courses_units.items()}
 
 # Generate a balanced assignment of course durations
@@ -985,7 +958,6 @@ best_solutions = {island_name: None for island_name in islands}
 # Generating initial populations for each island
 for island_name in islands.keys():
     islands[island_name] = initialize_population(CHROMOSOMES_PER_ISLAND, faculty_data, courses_units_adjusted, courses, rooms, days, time_slots)
-
 
 # ------------------------------ Print Initial Populations ------------------------------
 
@@ -1247,9 +1219,8 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     print("\nConsulting Hour Conflicts:")
     print_consulting_hour_conflicts(conflicts)
 
-
 # Initialize and run the DGA
-# run_dga(islands, faculty_data, num_generations=NUM_GENERATIONS, mutation_rate=MUTATION_RATE, migration_rate=0.5, num_migrants=2)
+run_dga(islands, faculty_data, num_generations=NUM_GENERATIONS, mutation_rate=MUTATION_RATE, migration_rate=0.5, num_migrants=2)
 
 # ------------------------------- Printing Checkers -------------------------------
 

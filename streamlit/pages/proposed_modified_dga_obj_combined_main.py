@@ -92,7 +92,7 @@ def print_population(population, faculty_data):
 
 # ------------------------ Fitness Functions ------------------------
 
-def calculate_fitness(chromosome, faculty_data, max_hours_per_day=4):
+def calculate_fitness(chromosome, faculty_data, availability_penalty, overlap_penalty, overload_penalty, consulting_conflict_penalty, max_hours_per_day=4):
     """
     Calculate the fitness for a single chromosome, incorporating penalties for:
     - Assigning courses outside of faculty availability.
@@ -104,17 +104,6 @@ def calculate_fitness(chromosome, faculty_data, max_hours_per_day=4):
     """
     penalty = 0
 
-    # Define penalty values for each type of violation
-    # PENALTY_VALUE_FOR_AVAILABILITY = 10
-    # PENALTY_VALUE_FOR_OVERLAP = 20
-    # PENALTY_VALUE_FOR_DAILY_OVERLOAD = 15
-    # PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT = 25
-
-    PENALTY_VALUE_FOR_AVAILABILITY = 10
-    PENALTY_VALUE_FOR_OVERLAP = 10
-    PENALTY_VALUE_FOR_DAILY_OVERLOAD = 10
-    PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT = 10
-
     # Penalty for assigning courses outside of faculty availability
     for faculty_schedule in chromosome:
         faculty_id = faculty_schedule['id']
@@ -123,99 +112,98 @@ def calculate_fitness(chromosome, faculty_data, max_hours_per_day=4):
         for course_detail in faculty_schedule['assigned_courses_with_details']:
             course_day = course_detail[2]
             if course_day not in faculty_availability:
-                penalty += PENALTY_VALUE_FOR_AVAILABILITY
+                penalty += availability_penalty  # Use the passed penalty value
 
     # Penalty for overlaps
     overlaps = check_for_overlaps(chromosome)
-    penalty += len(overlaps) * PENALTY_VALUE_FOR_OVERLAP
+    penalty += len(overlaps) * overlap_penalty  # Use the passed penalty value
 
     # Penalty for daily overloads
     daily_overloads = check_for_daily_overloads(chromosome, max_hours_per_day)
-    penalty += len(daily_overloads) * PENALTY_VALUE_FOR_DAILY_OVERLOAD
+    penalty += len(daily_overloads) * overload_penalty  # Use the passed penalty value
 
     # Penalty for consulting hour conflicts
     consulting_conflicts = check_for_consulting_hour_conflicts(chromosome, faculty_data)
-    penalty += len(consulting_conflicts) * PENALTY_VALUE_FOR_CONSULTING_HOUR_CONFLICT
+    penalty += len(consulting_conflicts) * consulting_conflict_penalty  # Use the passed penalty value
 
     # Fitness score calculation
     fitness_score = -penalty  # Using negative score because lower (more negative) is worse
+
     return fitness_score
 
 
 def calculate_fitness_detailed(chromosome, faculty_data, max_hours_per_day=4):
     """
     Calculate the fitness for a single chromosome, incorporating penalties for various constraints,
-    and provide a detailed breakdown of the penalties.
-
-    Parameters:
-        chromosome (list): The chromosome to evaluate.
-        faculty_data (list): Faculty data for fitness calculation.
-        max_hours_per_day (int): Maximum hours a faculty can teach per day.
-
-    Returns:
-        tuple: Fitness score (negative value where lower is worse) and a dictionary of penalty details.
+    and provide a detailed breakdown of the penalties and the specific solutions that got penalized.
     """
     penalties = {
-        'availability_violations': 0,
-        'room_overlaps': 0,
-        'daily_overloads': 0,
-        'consulting_hour_conflicts': 0,
-        'lab_subjects': 0  # Initialize the 'lab_subjects' key in the penalties dictionary
+        'availability_violations': [],
+        'room_overlaps': [],
+        'daily_overloads': [],
+        'consulting_hour_conflicts': [],
+        'lab_subjects': []
     }
-
-    # PENALTY_VALUES = {
-    #     'availability': 10,
-    #     'overlap': 20,
-    #     'overload': 15,
-    #     'consulting_conflict': 25
-    # }
-
+    
     PENALTY_VALUES = {
         'availability': 10,
         'overlap': 10,
         'overload': 10,
         'consulting_conflict': 10,
-        'lab_subject': 10  # Add a penalty for (Lab) subjects
+        'lab_subject': 0
     }
-
+    
     # Penalty for assigning courses outside of faculty availability
     for faculty_schedule in chromosome:
         faculty_id = faculty_schedule['id']
         faculty_availability = [faculty['availability'] for faculty in faculty_data if faculty['id'] == faculty_id][0]
-
         for course_detail in faculty_schedule['assigned_courses_with_details']:
             course_day = course_detail[2]
             if course_day not in faculty_availability:
-                penalties['availability_violations'] += PENALTY_VALUES['availability']
-
+                penalties['availability_violations'].append({
+                    'faculty_id': faculty_id,
+                    'course': course_detail[0],
+                    'day': course_day
+                })
+    
     # Penalty for overlaps
     overlaps = check_for_overlaps(chromosome)
-    penalties['room_overlaps'] += len(overlaps) * PENALTY_VALUES['overlap']
-
+    penalties['room_overlaps'].extend(overlaps)
+    
     # Penalty for daily overloads
     daily_overloads = check_for_daily_overloads(chromosome, max_hours_per_day)
-    penalties['daily_overloads'] += len(daily_overloads) * PENALTY_VALUES['overload']
-
+    penalties['daily_overloads'].extend(daily_overloads)
+    
     # Penalty for consulting hour conflicts
     consulting_conflicts = check_for_consulting_hour_conflicts(chromosome, faculty_data)
-    penalties['consulting_hour_conflicts'] += len(consulting_conflicts) * PENALTY_VALUES['consulting_conflict']
-
+    penalties['consulting_hour_conflicts'].extend(consulting_conflicts)
+    
     # Penalty for (Lab) subjects
     for faculty_schedule in chromosome:
         for course_detail in faculty_schedule['assigned_courses_with_details']:
             course = course_detail[0]
             if '(Lab)' in course:
-                penalties['lab_subjects'] += PENALTY_VALUES['lab_subject']
-
-    total_penalty = sum(penalties.values())
+                penalties['lab_subjects'].append({
+                    'faculty_id': faculty_schedule['id'],
+                    'course': course
+                })
+    
+    total_penalty = (
+        len(penalties['availability_violations']) * PENALTY_VALUES['availability'] +
+        len(penalties['room_overlaps']) * PENALTY_VALUES['overlap'] +
+        len(penalties['daily_overloads']) * PENALTY_VALUES['overload'] +
+        len(penalties['consulting_hour_conflicts']) * PENALTY_VALUES['consulting_conflict'] +
+        len(penalties['lab_subjects']) * PENALTY_VALUES['lab_subject']
+    )
+    
     fitness_score = -total_penalty
-
+    
     return fitness_score, penalties
 
 
 # ------------------------ Selection Functions ------------------------
 
-def rank_selection(population, faculty_data):
+def rank_selection(population, faculty_data, availability_penalty, overlap_penalty, overload_penalty, consulting_conflict_penalty):
     """
     Selects two parents using rank selection based on fitness.
 
@@ -227,7 +215,20 @@ def rank_selection(population, faculty_data):
         tuple: The top two chromosomes based on fitness.
     """
     # Calculate fitness for each chromosome in the population
-    population_with_fitness = [(chromosome, calculate_fitness(chromosome, faculty_data)) for chromosome in population]
+    population_with_fitness = [
+        (
+            chromosome,
+            calculate_fitness(
+                chromosome,
+                faculty_data,
+                availability_penalty,
+                overlap_penalty,
+                overload_penalty,
+                consulting_conflict_penalty,
+            ),  # Pass penalty values
+        )
+        for chromosome in population
+    ]
     # Sort the population based on fitness in descending order (higher fitness is better)
     sorted_population = sorted(population_with_fitness, key=lambda x: x[1], reverse=True)
     # Select the top two chromosomes as parents
@@ -403,32 +404,26 @@ def times_overlap(time_slot1, time_slot2):
 def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5):
     """
     Objective 1: Adaptive mutation strategy inspired by Differential Evolution (DE) to apply changes to a single chromosome within the context of a scheduling problem.
-
     Applies a mutation inspired by Differential Evolution (DE) to a single chromosome within the context of a scheduling problem.
     The mutation randomly targets aspects of course assignments: room, day, or time slot, and applies changes based on the DE strategy,
     using differences between other randomly selected chromosomes to guide the mutation.
-
     Parameters:
     - chromosome: The individual chromosome to mutate, representing a faculty schedule.
     - population: The current population from which to select individuals for DE operations.
     - rooms, days, time_slots: Lists of available rooms, days, and time slots for scheduling.
     - faculty_data: Data containing faculty preferences and constraints.
     - F: DE scaling factor controlling the intensity of mutations.
-
     Returns:
     - Mutated chromosome with potentially altered course assignments.
     """
-
     # Ensure there are enough individuals for DE operation, excluding the current chromosome
     eligible_population = [ind for ind in population if ind != chromosome]
     if len(eligible_population) < 3:
         print("Not enough unique chromosomes for DE-inspired mutation. Skipping mutation for this chromosome.")
         return chromosome  # Return the chromosome unchanged
-
     # Safe to proceed with sampling
     r1, r2, r3 = random.sample(eligible_population, 3)
 
-    # Mutation logic remains the same as previously described
     for faculty_index, faculty_schedule in enumerate(chromosome):
         # Protect against index errors when faculty_index exceeds the length of r1, r2, or r3
         if faculty_index >= len(r1) or faculty_index >= len(r2) or faculty_index >= len(r3):
@@ -445,10 +440,18 @@ def mutate(chromosome, population, rooms, days, time_slots, faculty_data, F=0.5)
                     course_detail = (course_detail[0], new_room, course_detail[2], course_detail[3])
 
             elif mutation_choice == 'day':
-                # DE-inspired mutation for day, considering faculty availability and consulting hour conflicts
-                new_day = random.choice([day for day in days if day != course_detail[2] and day in faculty_data[faculty_index]['availability']])
-                if not conflicts_with_consulting_hours(new_day, course_detail[3], faculty_data[faculty_index]['consulting_hours']):
+                # Get available days for mutation, excluding the current day
+                available_days = [day for day in days if day != course_detail[2] and day in faculty_data[faculty_index]['availability']]
+
+                if available_days:  # Check if there are valid days for mutation
+                    new_day = random.choice(available_days)
                     course_detail = (course_detail[0], course_detail[1], new_day, course_detail[3])
+                else:
+                    # Handle the case where no valid days are found
+                    print(f"No valid days for mutation found for faculty {faculty_index}, course {course_detail[0]}. Skipping day mutation.")
+                    # You can choose alternative actions here, such as:
+                    # - Trying a different mutation aspect (room or time slot)
+                    # - Skipping the mutation for this course entirely
 
             elif mutation_choice == 'time_slot':
                 # DE-inspired mutation for time slot, ensuring no overlap with consulting hours
@@ -562,20 +565,25 @@ def calculate_population_diversity(population):
 
 # ------------------------ Elitism Functions ------------------------
 
-def select_elites(population, faculty_data, n_elites=2):
+def select_elites(population, faculty_data, availability_penalty, overlap_penalty, overload_penalty, consulting_conflict_penalty, n_elites=2):
     """
     Selects the top n_elites chromosomes from the population based on their fitness scores.
-
-    Parameters:
-        population (list): The current population from which to select elites.
-        faculty_data (list): Faculty data for fitness calculation.
-        n_elites (int): The number of elite chromosomes to select.
-
-    Returns:
-        list: The list of elite chromosomes.
     """
     # Calculate fitness for each chromosome in the population
-    population_with_fitness = [(chromosome, calculate_fitness(chromosome, faculty_data)) for chromosome in population]
+    population_with_fitness = [
+        (
+            chromosome,
+            calculate_fitness(
+                chromosome,
+                faculty_data,
+                availability_penalty,
+                overlap_penalty,
+                overload_penalty,
+                consulting_conflict_penalty,
+            ), 
+        )
+        for chromosome in population
+    ]
     # Sort the population based on fitness in descending order (higher fitness is better)
     sorted_population = sorted(population_with_fitness, key=lambda x: x[1], reverse=True)
     # Select the top n_elites chromosomes as elites
@@ -918,12 +926,13 @@ faculty_data = [
 ]
 
 # Limit faculty data to 10 only
-faculty_data = faculty_data[:20]
+faculty_data = faculty_data[:25]
 
 # courses_units = {
 #     'Subject 1': 3, 'Subject 2': 3, 'Subject 3': 4, 'Subject 4': 2, 'Subject 5': 3, 'Subject 6': 5,
 #     'Subject 7': 3, 'Subject 8': 4, 'Subject 9': 2, 'Subject 10': 3, 'Subject 11': 4, 'Subject 12': 5
 # }
+
 courses_units = {
     'Subject 1 (Lab)': 3, 'Subject 1 (Lec)': 3, 'Subject 2 (Lab)': 3, 'Subject 2 (Lec)': 3,
     'Subject 3 (Lab)': 1, 'Subject 3 (Lec)': 2, 'Subject 4 (Lab)': 2, 'Subject 4 (Lec)': 2,
@@ -972,9 +981,31 @@ best_solutions = {island_name: None for island_name in islands}
 for island_name in islands.keys():
     islands[island_name] = initialize_population(CHROMOSOMES_PER_ISLAND, faculty_data, courses_units_adjusted, courses, rooms, days, time_slots)
 
+    
+
+
 # ------------------------------ Main Distributed Genetic Algorithm Loop ------------------------------
 
-def island_process(island_name, island_population, faculty_data, num_generations, mutation_rate, migration_pool, migration_log, shared_dict, fitness_scores, diversity_scores, optimal_found_event, current_generation):
+def island_process(
+    island_name,
+    island_population,
+    faculty_data,
+    num_generations,
+    mutation_rate,
+    migration_pool,
+    migration_log,
+    shared_dict,
+    fitness_scores,
+    diversity_scores,
+    global_best_fitness,
+    optimal_found_event,
+    lock,  # Add the lock as an argument
+    current_generation,
+    availability_penalty,
+    overlap_penalty,
+    overload_penalty,
+    consulting_conflict_penalty,
+):
     """
     Executes the genetic algorithm for a single island.
     """
@@ -983,36 +1014,90 @@ def island_process(island_name, island_population, faculty_data, num_generations
         if optimal_found_event.is_set():
             print(f"{island_name} terminating early due to global optima found.")
             # Update shared_dict with the best solution found by the island before terminating
-            best_solution = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
+            best_solution = max(
+                island_population,
+                key=lambda x: calculate_fitness(
+                    x,
+                    faculty_data,
+                    availability_penalty,  # Pass penalty values
+                    overlap_penalty,
+                    overload_penalty,
+                    consulting_conflict_penalty,
+                ),
+            )
             shared_dict[island_name] = best_solution
             return
 
         # Selection: Rank Selection
-        parent1, parent2, fitness1,  fitness2 = rank_selection(island_population, faculty_data)
-
-        # Tournament
-        # parent1, parent2, fitness1, fitness2 = tournament_selection(island_population, faculty_data, tournament_size=3)
+        parent1, parent2, fitness1, fitness2 = rank_selection(
+            island_population,
+            faculty_data,
+            availability_penalty,  # Pass penalty values
+            overlap_penalty,
+            overload_penalty,
+            consulting_conflict_penalty,
+        )
 
         # Crossover
         offspring1, offspring2 = crossover(parent1, parent2, faculty_data)
 
         # Mutation
-        mutated_offspring1 = mutate(offspring1, island_population, rooms, days, time_slots, faculty_data)
-        mutated_offspring2 = mutate(offspring2, island_population, rooms, days, time_slots, faculty_data)
+        mutated_offspring1 = mutate(
+            offspring1, island_population, rooms, days, time_slots, faculty_data
+        )
+        mutated_offspring2 = mutate(
+            offspring2, island_population, rooms, days, time_slots, faculty_data
+        )
 
         # Elitism and Populations Update
-        elites, elite_fitness_scores = select_elites(island_population, faculty_data)
+        elites, elite_fitness_scores = select_elites(
+            island_population,
+            faculty_data,
+            availability_penalty,  # Pass penalty values
+            overlap_penalty,
+            overload_penalty,
+            consulting_conflict_penalty,
+        )
         island_population[-4:-2] = [mutated_offspring1, mutated_offspring2]
         island_population[-2:] = elites
 
         # Fitness Re-evaluation for logging
-        updated_fitness_scores = [calculate_fitness(chromosome, faculty_data) for chromosome in island_population]
-        best_fitness = max(updated_fitness_scores)
-        print(f'Best Fitness in {island_name}: {best_fitness}')
+        updated_fitness_scores = [
+            calculate_fitness(
+                chromosome,
+                faculty_data,
+                availability_penalty,  # Pass penalty values
+                overlap_penalty,
+                overload_penalty,
+                consulting_conflict_penalty,
+            )
+            for chromosome in island_population
+        ]
 
         # Calculate and log best fitness for the generation
-        best_fitness = max([calculate_fitness(chromosome, faculty_data) for chromosome in island_population])
+        best_fitness = max(
+            [
+                calculate_fitness(
+                    chromosome,
+                    faculty_data,
+                    availability_penalty,  # Pass penalty values
+                    overlap_penalty,
+                    overload_penalty,
+                    consulting_conflict_penalty,
+                )
+                for chromosome in island_population
+            ]
+        )
         fitness_scores[island_name].append(best_fitness)
+
+        # Update global best fitness if necessary (using the lock)
+        if best_fitness > global_best_fitness.value:
+            with lock:  # Acquire the lock before updating
+                global_best_fitness.value = best_fitness
+
+        # Check for optimal solution and signal early stopping
+        if global_best_fitness.value == optimal_fitness_threshold:
+            optimal_found_event.set()
 
         # Calculate and log diversity for the generation
         diversity = calculate_diversity(island_population)
@@ -1022,39 +1107,73 @@ def island_process(island_name, island_population, faculty_data, num_generations
         while not migration_pool.empty():
             try:
                 migrant_info = migration_pool.get_nowait()
-                if migrant_info['destination'] == island_name:  # Ensure the migrant is intended for this island
+                if migrant_info["destination"] == island_name:
                     # Proceed with migration logic
-                    least_fit_idx = island_population.index(min(island_population, key=lambda x: calculate_fitness(x, faculty_data)))
-                    island_population[least_fit_idx] = migrant_info['chromosome']
-                    # print(f"Migrated to {island_name} from {migrant_info['source']}: {migrant_info['chromosome']}")
-                    migration_log.put(f"{migrant_info['source']} -> {island_name}: {migrant_info['chromosome']}")
+                    least_fit_idx = island_population.index(
+                        min(
+                            island_population,
+                            key=lambda x: calculate_fitness(
+                                x,
+                                faculty_data,
+                                availability_penalty,  # Pass penalty values
+                                overlap_penalty,
+                                overload_penalty,
+                                consulting_conflict_penalty,
+                            ),
+                        )
+                    )
+                    island_population[least_fit_idx] = migrant_info["chromosome"]
+                    migration_log.put(
+                        f"{migrant_info['source']} -> {island_name}: {migrant_info['chromosome']}"
+                    )
             except Exception as e:
                 break  # If the pool is empty or an error occurs
 
         # Contribute the best chromosome to the migration pool every few generations
         if generation % 5 == 0:
-            best_chromosome = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
-            # Randomly select a destination island different from the current one
+            best_chromosome = max(
+                island_population, key=lambda x: calculate_fitness(x, faculty_data, availability_penalty, overlap_penalty, overload_penalty, consulting_conflict_penalty)
+            )
             destinations = [name for name in shared_dict.keys() if name != island_name]
-            if destinations:  # Ensure there's at least one possible destination
+            if destinations:
                 destination = random.choice(destinations)
-                migration_pool.put({"source": island_name, "chromosome": best_chromosome, "destination": destination})
+                migration_pool.put(
+                    {
+                        "source": island_name,
+                        "chromosome": best_chromosome,
+                        "destination": destination,
+                    }
+                )
 
         # Update shared_dict with the best chromosome found by the island
-        best_chromosome = max(island_population, key=lambda x: calculate_fitness(x, faculty_data))
+        best_chromosome = max(
+            island_population,
+            key=lambda x: calculate_fitness(
+                x,
+                faculty_data,
+                availability_penalty,  # Pass penalty values
+                overlap_penalty,
+                overload_penalty,
+                consulting_conflict_penalty,
+            ),
+        )
         shared_dict[island_name] = best_chromosome
 
-        # Check for global optima
-        if best_fitness == 0:
-            optimal_found_event.set()
-            print(f"Optimal solution found by {island_name} at generation {generation}. Terminating all processes.")
-            return
-        
         current_generation.value += 1
 
 
 # Main Distributed Genetic Algorithm Loop
-def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migration_rate=0.1, num_migrants=2):
+def run_dga(
+    islands,
+    num_generations=100,
+    mutation_rate=0.1,
+    num_migrants=2,
+    faculty_data=None,
+    availability_penalty=10,
+    overlap_penalty=10,
+    overload_penalty=10,
+    consulting_conflict_penalty=10,
+):
     start_time = time.time()
 
     manager = Manager()
@@ -1063,12 +1182,43 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
     migration_log = manager.Queue()
     fitness_scores = manager.dict({island_name: manager.list() for island_name in islands})
     diversity_scores = manager.dict({island_name: manager.list() for island_name in islands})
+    global_best_fitness = manager.Value('i', float('-inf'))
     optimal_found_event = Event()
     current_generation = manager.Value('i', 0)  # Create a shared variable for current generation
     processes = []
 
+    # Create a lock for synchronization
+    lock = manager.Lock() 
+
+    # Define your optimal fitness threshold here (e.g., for 0 penalty):
+    optimal_fitness_threshold = 0
+
+
+
     for island_name, island_population in islands.items():
-        p = Process(target=island_process, args=(island_name, island_population, faculty_data, num_generations, mutation_rate, migration_pool, migration_log, shared_dict, fitness_scores, diversity_scores, optimal_found_event, current_generation))
+        p = Process(
+            target=island_process,
+            args=(
+                island_name,
+                island_population,
+                faculty_data,
+                num_generations,
+                mutation_rate,
+                migration_pool,
+                migration_log,
+                shared_dict,
+                fitness_scores,
+                diversity_scores,
+                global_best_fitness,
+                optimal_found_event,
+                lock,  # Pass the lock to the process
+                current_generation,
+                availability_penalty,  # Pass penalty values
+                overlap_penalty,
+                overload_penalty,
+                consulting_conflict_penalty,
+            ),
+        )
         p.start()
         processes.append(p)
 
@@ -1097,23 +1247,38 @@ def run_dga(islands, faculty_data, num_generations=100, mutation_rate=0.1, migra
 
     # Find the global best solution and its fitness
     global_best_solution = None
-    global_best_fitness = float('-inf')
+    global_best_fitness = float("-inf")
     for island_name, island_solution in shared_dict.items():
-        island_fitness = calculate_fitness(island_solution, faculty_data)
+        island_fitness = calculate_fitness(
+            island_solution,
+            faculty_data,
+            availability_penalty,  # Pass penalty values
+            overlap_penalty,
+            overload_penalty,
+            consulting_conflict_penalty,
+        )
         if island_fitness > global_best_fitness:
             global_best_solution = island_solution
             global_best_fitness = island_fitness
 
-    # Prepare the data to return
-    results = {
+    global_best_fitness_value = global_best_fitness
+
+    # Calculate penalties for the global best solution
+    _, global_best_penalties = calculate_fitness_detailed(global_best_solution, faculty_data) 
+
+    # Initialize the results dictionary here
+    results = {        
         'total_time': total_time,
-        'global_best_fitness': global_best_fitness,
+        'global_best_fitness': global_best_fitness_value,
         'global_best_solution': global_best_solution,
         'fitness_scores_over_generations': fitness_scores_over_generations,
         'island_diversity_scores_over_generations': island_diversity_scores_over_generations,
         'diversity_scores_over_generations': diversity_scores_over_generations,
-        'last_generation': current_generation.value  # Include the final value of current_generation
+        'last_generation': current_generation.value  
     }
+
+    # Include penalties in the results dictionary
+    results['global_best_penalties'] = global_best_penalties 
 
     return results
 
